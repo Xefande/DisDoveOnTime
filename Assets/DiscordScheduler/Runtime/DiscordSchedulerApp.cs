@@ -22,7 +22,6 @@ namespace DiscordScheduler
 
         private AppDatabase _db;
 
-        // UI
         private UIDocument _ui;
         private VisualElement _root;
 
@@ -30,12 +29,10 @@ namespace DiscordScheduler
 
         private VisualElement _viewTargets, _viewNew, _viewPosts, _viewSettings, _viewLog;
 
-        // targets UI refs
         private ListView _targetsList;
         private TextField _tfTargetName, _tfTargetServer, _tfTargetChannel, _tfTargetWebhook, _tfTargetUsername, _tfTargetAvatar;
         private Label _lblTargetHint;
 
-        // new post refs
         private DropdownField _ddPostTarget;
         private TextField _tfPostTitle, _tfPostBody, _tfDate, _tfTime, _tfImagePath;
         private DropdownField _ddAttachmentPick;
@@ -46,7 +43,6 @@ namespace DiscordScheduler
         private Label _lblScheduleResult, _lblImageHint, _lblPostBodyCounter;
         private Button _btnSchedule;
 
-        // add these fields near other "New post refs"
         private Toggle _tgAttachMedia;
         private VisualElement _mediaOptionsNew;
         private Toggle _tgMediaIsImage;
@@ -61,7 +57,6 @@ namespace DiscordScheduler
         private Texture2D _previewTexNew;
         private Coroutine _previewVideoCoNew;
 
-        // posts view refs
         private ListView _postsList;
         private DropdownField _ddEditTarget, _ddEditAttachmentPick;
         private TextField _tfEditTitle, _tfEditBody, _tfEditDate, _tfEditTime, _tfEditImagePath;
@@ -74,17 +69,14 @@ namespace DiscordScheduler
         private Texture2D _previewTexEdit;
         private Coroutine _previewVideoCoEdit;
 
-        // settings refs
         private IntegerField _ifSleepThreshold;
         private Toggle _tgDefaultAllowUsers, _tgDefaultAllowRoles, _tgDefaultAllowEveryone;
         private TextField _tfDefaultUserIds, _tfDefaultRoleIds;
         private DropdownField _ddDefaultOffPolicy, _ddDefaultSleepPolicy;
         private Label _lblPaths, _lblSettingsResult;
 
-        // log refs
         private ScrollView _logScroll;
 
-        // modal picker UI (date/time)
         private VisualElement _modalOverlay;
         private VisualElement _modalCard;
         private Label _modalTitle;
@@ -92,7 +84,6 @@ namespace DiscordScheduler
         private Button _btnModalClose;
         private Action _modalOnClose;
 
-        // send queue
         private readonly Queue<string> _sendQueuePostIds = new Queue<string>();
         private bool _isSending;
 
@@ -104,6 +95,9 @@ namespace DiscordScheduler
             "Mark Missed (don't send)",
             "Mark Failed (don't send)"
         };
+
+        private float _lastHeartbeatRealtime;
+        private float _lastHeartbeatLogRealtime;
 
         private void Awake()
         {
@@ -125,6 +119,26 @@ namespace DiscordScheduler
             _scheduler = new SchedulerService(_db, _log);
 
             FileUtil.EnsureFolders();
+
+            _log.Info("App Awake.");
+            _lastHeartbeatRealtime = Time.realtimeSinceStartup;
+            _lastHeartbeatLogRealtime = Time.realtimeSinceStartup;
+        }
+
+        private bool _hasFocus;
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            _hasFocus = hasFocus;
+
+            if (_log == null) return;
+            _log.Info("App focus: " + (hasFocus ? "gained" : "lost"));
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (_log == null) return;
+            _log.Info("App pause: " + (paused ? "paused" : "resumed"));
         }
 
         private void OnDisable()
@@ -183,13 +197,19 @@ namespace DiscordScheduler
 
         private void Update()
         {
-            // tick scheduler
+            _lastHeartbeatRealtime = Time.realtimeSinceStartup;
+
+            if (_log != null && (Time.realtimeSinceStartup - _lastHeartbeatLogRealtime) >= 10f)
+            {
+                _log.Info("Heartbeat: alive.");
+                _lastHeartbeatLogRealtime = Time.realtimeSinceStartup;
+            }
+
             _scheduler.Tick((p, isOffMissed, isSleepMissed) =>
             {
                 ApplyMissedPolicyAndMaybeEnqueue(p, isOffMissed, isSleepMissed);
             });
 
-            // process queue
             if (!_isSending && _sendQueuePostIds.Count > 0)
             {
                 var id = _sendQueuePostIds.Dequeue();
@@ -1543,7 +1563,14 @@ namespace DiscordScheduler
         {
             string preferredPath = null;
 
-            // Ha a jelenlegi path nem az attachments-ben van, másoljuk be ideiglenes, egyedi néven
+            // avoid blocking IO during focus transitions / when app isn't focused.
+            if (!_hasFocus)
+            {
+                RefreshAttachmentsDropdown(_ddMediaPick, MediaKind.None, (_tfMediaPath?.value ?? "").Trim());
+                return;
+            }
+
+            // if the current media path is outside attachments folder, try to copy it in
             if (_tfMediaPath != null)
             {
                 var current = (_tfMediaPath.value ?? "").Trim();
@@ -1984,6 +2011,12 @@ namespace DiscordScheduler
 
         private IEnumerator LoadVideoFrame(string path, Image img, Action<Texture2D> setTex)
         {
+            if (string.IsNullOrWhiteSpace(path) || img == null)
+                yield break;
+
+            if (!File.Exists(path))
+                yield break;
+
             var videoPreviewGameObject = new GameObject("MediaPreviewVideo");
             var videoPlayer = videoPreviewGameObject.AddComponent<VideoPlayer>();
             videoPlayer.playOnAwake = false;
@@ -1993,66 +2026,111 @@ namespace DiscordScheduler
             videoPlayer.isLooping = false;
             videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
 
-            // Predeclare so we can pass it to CleanupVideoPreview on early exits
             RenderTexture renderTexture = null;
+            Texture2D tex = null;
+            var prevActive = RenderTexture.active;
 
-            videoPlayer.Prepare();
-            float wait = 0f;
-            const float prepareTimeout = 3f;
-            while (!videoPlayer.isPrepared && wait < prepareTimeout)
+            try
             {
-                wait += Time.unscaledDeltaTime;
-                yield return null;
+                videoPlayer.Prepare();
+
+                float wait = 0f;
+                const float prepareTimeout = 3f;
+
+                while (!videoPlayer.isPrepared && wait < prepareTimeout)
+                {
+                    if (!Application.isFocused)
+                        yield break;
+
+                    wait += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+
+                if (!videoPlayer.isPrepared)
+                {
+                    Debug.LogWarning($"Video preview: prepare failed or timed out ({path})");
+                    yield break;
+                }
+
+                int w = Mathf.Max(2, videoPlayer.width > 0 ? (int)videoPlayer.width : 320);
+                int h = Mathf.Max(2, videoPlayer.height > 0 ? (int)videoPlayer.height : 180);
+
+                renderTexture = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32);
+                videoPlayer.targetTexture = renderTexture;
+
+                videoPlayer.Play();
+
+                float frameWait = 0f;
+                const float firstFrameTimeout = 1.0f;
+
+                while (videoPlayer.isPlaying && videoPlayer.frame <= 0 && frameWait < firstFrameTimeout)
+                {
+                    if (!Application.isFocused)
+                        yield break;
+
+                    frameWait += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+
+                if (!Application.isFocused)
+                    yield break;
+
+                videoPlayer.Pause();
+                yield return new WaitForEndOfFrame();
+
+                try
+                {
+                    tex = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.ARGB32, false);
+
+                    prevActive = RenderTexture.active;
+                    RenderTexture.active = renderTexture;
+
+                    tex.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
+                    tex.Apply(false, false);
+                }
+                catch (Exception e)
+                {
+                    if (tex != null)
+                    {
+                        UnityEngine.Object.Destroy(tex);
+                        tex = null;
+                    }
+
+                    Debug.LogWarning("Video preview: failed to capture frame: " + e.Message);
+                    yield break;
+                }
+                finally
+                {
+                    RenderTexture.active = prevActive;
+                }
+
+                setTex?.Invoke(tex);
+                img.image = tex;
+                img.scaleMode = ScaleMode.ScaleToFit;
+
+                tex = null;
             }
-
-            if (!videoPlayer.isPrepared)
+            finally
             {
-                Debug.LogWarning($"Video preview: prepare failed or timed out ({path})");
+                if (tex != null)
+                    UnityEngine.Object.Destroy(tex);
+
+                RenderTexture.active = prevActive;
                 CleanupVideoPreview(videoPlayer, renderTexture, videoPreviewGameObject);
-                yield break;
             }
-
-            int w = Mathf.Max(2, videoPlayer.width > 0 ? (int)videoPlayer.width : 320);
-            int h = Mathf.Max(2, videoPlayer.height > 0 ? (int)videoPlayer.height : 180);
-            renderTexture = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32);
-            videoPlayer.targetTexture = renderTexture;
-
-            videoPlayer.Play();
-
-            float frameWait = 0f;
-            const float firstFrameTimeout = 1.0f;
-            while (videoPlayer.isPlaying && videoPlayer.frame <= 0 && frameWait < firstFrameTimeout)
-            {
-                frameWait += Time.unscaledDeltaTime;
-                yield return null;
-            }
-
-            videoPlayer.Pause();
-            yield return new WaitForEndOfFrame();
-
-            var tex = new Texture2D(renderTexture.width, renderTexture.height, TextureFormat.ARGB32, false);
-            RenderTexture.active = renderTexture;
-            tex.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
-            tex.Apply();
-            RenderTexture.active = null;
-
-            setTex?.Invoke(tex);
-            img.image = tex;
-            img.scaleMode = ScaleMode.ScaleToFit;
-
-            CleanupVideoPreview(videoPlayer, renderTexture, videoPreviewGameObject);
         }
 
-        private static void CleanupVideoPreview(VideoPlayer vp, RenderTexture rt, GameObject go)
+        private static void CleanupVideoPreview(VideoPlayer videoPlayer, RenderTexture renderTexture, GameObject videoPreviewGameObject)
         {
-            if (vp != null) vp.targetTexture = null;
-            if (rt != null)
+            if (videoPlayer != null) videoPlayer.targetTexture = null;
+
+            if (renderTexture != null)
             {
-                rt.Release();
-                UnityEngine.Object.Destroy(rt);
+                renderTexture.Release();
+                UnityEngine.Object.Destroy(renderTexture);
             }
 
-            if (go != null) UnityEngine.Object.Destroy(go);
+            if (videoPreviewGameObject != null) UnityEngine.Object.Destroy(videoPreviewGameObject);
         }
 
         private void ConfigurePostModeRadios(Toggle normal, Toggle embed)

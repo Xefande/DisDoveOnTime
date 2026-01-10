@@ -58,7 +58,9 @@ namespace DiscordScheduler
             try
             {
                 var json = JsonUtility.ToJson(db, true);
-                WriteAllTextAtomicWithRetry(path, json);
+                bool ok = TryWriteAllTextAtomicWithRetry(path, json, out var attempts);
+                if (!ok)
+                    _log.Error($"Save error: failed to write after {attempts} attempts. Path: {path}");
             }
             catch (Exception e)
             {
@@ -66,9 +68,12 @@ namespace DiscordScheduler
             }
         }
 
-        private static void WriteAllTextAtomicWithRetry(string path, string contents)
+        private bool TryWriteAllTextAtomicWithRetry(string path, string contents, out int attempts)
         {
-            if (string.IsNullOrWhiteSpace(path)) return;
+            attempts = 0;
+
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
 
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
@@ -80,34 +85,47 @@ namespace DiscordScheduler
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
+                attempts = attempt;
+
                 try
                 {
                     File.WriteAllText(tempPath, contents ?? string.Empty);
 
                     if (File.Exists(path))
-                    {
                         File.Replace(tempPath, path, null);
-                    }
                     else
-                    {
                         File.Move(tempPath, path);
+
+                    if (attempt > 1)
+                        _log.Warn($"DB save succeeded after retry {attempt}/{maxAttempts}.");
+
+                    return true;
+                }
+                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+                {
+                    CleanupTempFile(tempPath);
+
+                    if (attempt < maxAttempts)
+                    {
+                        if (attempt == 1)
+                            _log.Warn("DB save retrying due to IO/Access error: " + e.Message);
+
+                        Backoff(attempt);
+                        continue;
                     }
 
-                    return;
+                    _log.Error("DB save failed (IO/Access): " + e);
+                    return false;
                 }
-                catch (IOException)
+                catch (Exception e)
                 {
                     CleanupTempFile(tempPath);
-                    Backoff(attempt);
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    CleanupTempFile(tempPath);
-                    Backoff(attempt);
+                    _log.Error("DB save failed: " + e);
+                    return false;
                 }
             }
 
-            File.WriteAllText(path, contents ?? string.Empty);
+            return false;
         }
 
         private static void Backoff(int attempt)
@@ -124,7 +142,6 @@ namespace DiscordScheduler
             }
             catch
             {
-                // Ignore cleanup errors
             }
         }
     }
