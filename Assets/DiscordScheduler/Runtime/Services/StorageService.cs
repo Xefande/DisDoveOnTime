@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using UnityEngine;
 
 namespace DiscordScheduler
@@ -40,7 +41,7 @@ namespace DiscordScheduler
             }
             catch (Exception e)
             {
-                _log.Error("Failed to load database, creating new one. Error: " + e.Message);
+                _log.Error("Failed to load database, creating new one. Error: " + e);
                 var db = new AppDatabase();
                 Save(db);
                 return db;
@@ -49,17 +50,81 @@ namespace DiscordScheduler
 
         public void Save(AppDatabase db)
         {
+            if (db == null) return;
+
             FileUtil.EnsureFolders();
             var path = FileUtil.DataFilePath;
 
             try
             {
                 var json = JsonUtility.ToJson(db, true);
-                File.WriteAllText(path, json);
+                WriteAllTextAtomicWithRetry(path, json);
             }
             catch (Exception e)
             {
-                _log.Error("Save error: " + e.Message);
+                _log.Error("Save error: " + e);
+            }
+        }
+
+        private static void WriteAllTextAtomicWithRetry(string path, string contents)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            var tempPath = path + ".tmp";
+
+            const int maxAttempts = 5;
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    File.WriteAllText(tempPath, contents ?? string.Empty);
+
+                    if (File.Exists(path))
+                    {
+                        File.Replace(tempPath, path, null);
+                    }
+                    else
+                    {
+                        File.Move(tempPath, path);
+                    }
+
+                    return;
+                }
+                catch (IOException)
+                {
+                    CleanupTempFile(tempPath);
+                    Backoff(attempt);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    CleanupTempFile(tempPath);
+                    Backoff(attempt);
+                }
+            }
+
+            File.WriteAllText(path, contents ?? string.Empty);
+        }
+
+        private static void Backoff(int attempt)
+        {
+            Thread.Sleep(Math.Min(250 * attempt, 1000));
+        }
+
+        private static void CleanupTempFile(string tempPath)
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+                // Ignore cleanup errors
             }
         }
     }
