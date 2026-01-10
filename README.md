@@ -18,7 +18,7 @@ A simple, locally running tool for scheduling Discord posts via **webhooks**.
 ### Usage
 1) Double click on DisDoveOnTime.exe.
 2) Add a target by pasting a webhook URL, then create a post (date/time, text, optional media).
-3) Schedule it — the background service will send it, and you can track status in the Log view.
+3) Schedule it - the background service will send it, and you can track status in the Log view.
 
 ## For devs
 

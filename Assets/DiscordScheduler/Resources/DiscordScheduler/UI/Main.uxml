@@ -1,0 +1,220 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/DiscordScheduler/Resources/DiscordScheduler/UI/Main.uss?fileID=7433441132597879392&amp;guid=9c66f5ddbf60dc5478a547bb060704bf&amp;type=3#Main"/>
+    <ui:VisualElement name="Root" class="root">
+        <ui:VisualElement name="LeftNav" class="nav">
+            <ui:Label text="Discord Scheduler" class="appTitle"/>
+            <ui:Button name="btnTargets" text="Targets (Webhooks)" class="navBtn"/>
+            <ui:Button name="btnNewPost" text="New post" class="navBtn"/>
+            <ui:Button name="btnPosts" text="Scheduled posts" class="navBtn"/>
+            <ui:Button name="btnSettings" text="Settings" class="navBtn"/>
+            <ui:Button name="btnLog" text="Log" class="navBtn"/>
+            <ui:VisualElement class="spacer"/>
+            <ui:Label name="lblStatus" text="Status: -" class="small"/>
+        </ui:VisualElement>
+        <ui:VisualElement name="RightContent" class="content" style="min-width: 600px;">
+            <ui:VisualElement name="viewTargets" class="view">
+                <ui:Label text="Targets (Webhook destinations)" class="h1"/>
+                <ui:VisualElement class="split splitFill">
+                    <ui:VisualElement class="pane paneList">
+                        <ui:Label text="Saved targets" class="h2"/>
+                        <ui:ListView name="targetsList" class="list"/>
+                        <ui:VisualElement class="row">
+                            <ui:Button name="btnTargetAdd" text="New"/>
+                            <ui:Button name="btnTargetDelete" text="Delete"/>
+                            <ui:Button name="btnTargetTest" text="Send test"/>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="pane">
+                        <ui:Label text="Edit" class="h2"/>
+                        <ui:ScrollView name="svTargetEdit" mode="Vertical" class="paneScroll vscroll">
+                            <ui:TextField name="tfTargetName" label="Name"/>
+                            <ui:TextField name="tfTargetServer" label="Discord server (label)"/>
+                            <ui:TextField name="tfTargetChannel" label="Discord channel (label)"/>
+                            <ui:TextField name="tfTargetWebhook" label="Webhook URL"/>
+                            <ui:TextField name="tfTargetUsername" label="Override username (optional)"/>
+                            <ui:TextField name="tfTargetAvatar" label="Override avatar URL (optional)"/>
+                            <ui:VisualElement class="row">
+                                <ui:Button name="btnTargetSave" text="Save" class="primary"/>
+                                <ui:Label name="lblTargetHint" text="" class="hint"/>
+                            </ui:VisualElement>
+                        </ui:ScrollView>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="viewNewPost" class="view" style="display: none;">
+                <ui:Label text="Schedule a new post" class="h1"/>
+                <ui:ScrollView name="svNewPost" mode="Vertical" class="vscroll">
+                    <ui:DropdownField name="ddPostTarget" label="Target"/>
+                    <ui:TextField name="tfPostTitle" label="Post title (Embed title)"/>
+                    <ui:TextField name="tfPostBody" label="" multiline="true" class="multiline bodyField"/>
+                    <ui:VisualElement class="bodyToolbar">
+                        <ui:VisualElement class="bodyModeRow">
+                            <ui:VisualElement class="radioRow">
+                                <ui:Toggle name="tgPostModeNormal" label="" class="radioToggle" value="true"/>
+                                <ui:Label text="Normal (content)" class="radioLabel"/>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="radioRow">
+                                <ui:Toggle name="tgPostModeEmbed" label="" class="radioToggle"/>
+                                <ui:Label text="Embed (card)" class="radioLabel"/>
+                            </ui:VisualElement>
+                            <ui:Label text="Normal: plain message. Embed: shown in a card." class="hint"/>
+                        </ui:VisualElement>
+                        <ui:Label name="lblPostBodyCounter" text="0 / 1980 (remaining: 1980)" class="hint counterLabel toolbarCounter"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="row rowTop">
+                        <ui:VisualElement class="fieldCol">
+                            <ui:Label text="Date (YYYY-MM-DD)" class="fieldLabel"/>
+                            <ui:TextField name="tfDate" class="smallField"/>
+                        </ui:VisualElement>
+                        <ui:VisualElement class="fieldCol">
+                            <ui:Label text="Time (HH:MM)" class="fieldLabel"/>
+                            <ui:TextField name="tfTime" class="smallField"/>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:Label name="lblLocalHint" text="Time zone: Europe/Hamburg" class="hint"/>
+                    <ui:VisualElement class="group">
+                        <ui:Label text="Attachment (image / video) – optional, max 10MB (Non-Nitro)" class="h2"/>
+                        <ui:Toggle name="tgAttachMedia" label="Add attachment"/>
+                        <ui:VisualElement name="mediaOptionsNew" class="row rowWrap">
+                            <ui:Toggle name="tgMediaIsImage" label="Image"/>
+                            <ui:Toggle name="tgMediaIsVideo" label="Video (mp4/webm/mov)"/>
+                        </ui:VisualElement>
+                        <ui:TextField name="tfMediaPath" label="File path (paste)"/>
+                        <ui:VisualElement name="mediaButtonsNew" class="row rowWrap">
+                            <ui:Button name="btnMediaBrowse" text="Browse..."/>
+                            <ui:Button name="btnMediaClear" text="Clear attachment"/>
+                            <ui:Button name="btnMediaOpenAttachments" text="Open Attachments folder"/>
+                            <ui:Button name="btnMediaRefresh" text="Refresh Attachments"/>
+                        </ui:VisualElement>
+                        <ui:DropdownField name="ddMediaPick" label="Pick from Attachments"/>
+                        <ui:Label name="lblMediaHint" text="Tip: when scheduling, the app copies the file into the Attachments folder." class="hint"/>
+                        <ui:VisualElement name="mediaPreviewNew" class="mediaPreviewContainer">
+                            <ui:Label text="Preview" class="fieldLabel"/>
+                            <ui:Image name="imgMediaPreview" class="mediaPreview"/>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="group ping-ui">
+                        <ui:Label text="Allowed mentions (ping rules)" class="h2"/>
+                        <ui:Toggle name="tgAllowUsers" label="Allow user mentions"/>
+                        <ui:Toggle name="tgAllowRoles" label="Allow role mentions"/>
+                        <ui:Toggle name="tgAllowEveryone" label="Allow @everyone/@here"/>
+                        <ui:TextField name="tfMentionUserIds" label="User IDs (CSV, optional)"/>
+                        <ui:TextField name="tfMentionRoleIds" label="Role IDs (CSV, optional)"/>
+                        <ui:Label text="Default: all mentions disabled (safe)." class="hint"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="group">
+                        <ui:Label text="Delay handling (power off / sleep)" class="h2"/>
+                        <ui:DropdownField name="ddOffPolicy" label="If the PC/app was not running"/>
+                        <ui:DropdownField name="ddSleepPolicy" label="If a time jump happened due to sleep"/>
+                        <ui:Label text="Options: Send (on next run) / Mark as Missed / Mark as Failed." class="hint"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="row">
+                        <ui:Button name="btnSchedule" text="Schedule post" class="primary"/>
+                        <ui:Label name="lblScheduleResult" text="" class="hint"/>
+                    </ui:VisualElement>
+                </ui:ScrollView>
+            </ui:VisualElement>
+            <ui:VisualElement name="viewPosts" class="view">
+                <ui:Label text="Scheduled posts" class="h1"/>
+                <ui:VisualElement class="split splitFill">
+                    <ui:VisualElement class="pane paneList">
+                        <ui:Label text="List" class="h2"/>
+                        <ui:ListView name="postsList" class="list"/>
+                        <ui:VisualElement class="row">
+                            <ui:Button name="btnPostDelete" text="Delete"/>
+                            <ui:Button name="btnPostForceSend" text="Send now"/>
+                            <ui:Button name="btnPostDeleteSent" text="Delete sent"/>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="pane">
+                        <ui:Label text="Edit" class="h2"/>
+                        <ui:ScrollView name="svPostEdit" mode="Vertical" class="paneScroll vscroll">
+                            <ui:DropdownField name="ddEditTarget" label="Target"/>
+                            <ui:TextField name="tfEditTitle" label="Title"/>
+                            <ui:TextField name="tfEditBody" label="" multiline="true" class="multiline bodyField"/>
+                            <ui:VisualElement class="bodyToolbar">
+                                <ui:VisualElement class="bodyModeRow">
+                                    <ui:VisualElement class="radioRow">
+                                        <ui:Toggle name="tgEditModeNormal" label="" class="radioToggle" value="true"/>
+                                        <ui:Label text="Normal (content)" class="radioLabel"/>
+                                    </ui:VisualElement>
+                                    <ui:VisualElement class="radioRow">
+                                        <ui:Toggle name="tgEditModeEmbed" label="" class="radioToggle"/>
+                                        <ui:Label text="Embed (card)" class="radioLabel"/>
+                                    </ui:VisualElement>
+                                    <ui:Label text="Normal: plain message. Embed: shown in a card." class="hint"/>
+                                </ui:VisualElement>
+                                <ui:Label name="lblEditBodyCounter" text="0 / 1980 (remaining: 1980)" class="hint counterLabel toolbarCounter"/>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="row rowTop">
+                                <ui:VisualElement class="fieldCol">
+                                    <ui:Label text="Date (YYYY-MM-DD)" class="fieldLabel"/>
+                                    <ui:TextField name="tfEditDate" class="smallField"/>
+                                </ui:VisualElement>
+                                <ui:VisualElement class="fieldCol">
+                                    <ui:Label text="Time (HH:MM)" class="fieldLabel"/>
+                                    <ui:TextField name="tfEditTime" class="smallField"/>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:TextField name="tfEditImagePath" label="Media path"/>
+                            <ui:DropdownField name="ddEditAttachmentPick" label="Pick from Attachments"/>
+                            <ui:VisualElement class="row">
+                                <ui:Button name="btnEditImageClear" text="Clear media"/>
+                                <ui:Button name="btnEditRefreshAttachments" text="Refresh Attachments"/>
+                            </ui:VisualElement>
+                            <ui:VisualElement name="mediaPreviewEdit" class="mediaPreviewContainer">
+                                <ui:Label text="Preview" class="fieldLabel"/>
+                                <ui:Image name="imgEditPreview" class="mediaPreview"/>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="ping-ui">
+                                <ui:Label text="Allowed mentions" class="h2"/>
+                                <ui:Toggle name="tgEditAllowUsers" label="User mentions"/>
+                                <ui:Toggle name="tgEditAllowRoles" label="Role mentions"/>
+                                <ui:Toggle name="tgEditAllowEveryone" label="@everyone/@here"/>
+                                <ui:TextField name="tfEditMentionUserIds" label="User IDs (CSV)"/>
+                                <ui:TextField name="tfEditMentionRoleIds" label="Role IDs (CSV)"/>
+                            </ui:VisualElement>
+                            <ui:Label text="Delay policy" class="h2"/>
+                            <ui:DropdownField name="ddEditOffPolicy" label="Off policy"/>
+                            <ui:DropdownField name="ddEditSleepPolicy" label="Sleep policy"/>
+                            <ui:Label name="lblEditStatus" text="Status: -" class="small"/>
+                            <ui:VisualElement class="row">
+                                <ui:Button name="btnPostSave" text="Save" class="primary"/>
+                                <ui:Button name="btnPostMarkPending" text="Back to Pending"/>
+                            </ui:VisualElement>
+                            <ui:Label name="lblEditResult" text="" class="hint"/>
+                        </ui:ScrollView>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="viewSettings" class="view">
+                <ui:Label text="Settings" class="h1"/>
+                <ui:ScrollView name="svSettings" mode="Vertical" class="vscroll">
+                    <ui:IntegerField name="ifSleepThreshold" label="Sleep threshold (minutes). If a tick jumps by this amount (or more), it will be treated as sleep."/>
+                    <ui:Toggle name="tgDefaultAllowUsers" label="Default: allow user mentions"/>
+                    <ui:Toggle name="tgDefaultAllowRoles" label="Default: allow role mentions"/>
+                    <ui:Toggle name="tgDefaultAllowEveryone" label="Default: allow @everyone/@here"/>
+                    <ui:TextField name="tfDefaultUserIds" label="Default user IDs (CSV)"/>
+                    <ui:TextField name="tfDefaultRoleIds" label="Default role IDs (CSV)"/>
+                    <ui:DropdownField name="ddDefaultOffPolicy" label="Default off policy"/>
+                    <ui:DropdownField name="ddDefaultSleepPolicy" label="Default sleep policy"/>
+                    <ui:Label name="lblPaths" text="Paths: -" class="small"/>
+                    <ui:VisualElement class="row rowWrap">
+                        <ui:Button name="btnSaveSettings" text="Save" class="primary"/>
+                        <ui:Button name="btnOpenDataFolder" text="Open Data folder"/>
+                        <ui:Button name="btnOpenAttachments2" text="Open Attachments folder"/>
+                    </ui:VisualElement>
+                    <ui:Label name="lblSettingsResult" text="" class="hint"/>
+                </ui:ScrollView>
+            </ui:VisualElement>
+            <ui:VisualElement name="viewLog" class="view">
+                <ui:Label text="Log" class="h1"/>
+                <ui:ScrollView name="logScroll" class="log"/>
+                <ui:VisualElement class="row">
+                    <ui:Button name="btnLogClear" text="Clear log"/>
+                    <ui:Button name="btnLogRefresh" text="Refresh"/>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

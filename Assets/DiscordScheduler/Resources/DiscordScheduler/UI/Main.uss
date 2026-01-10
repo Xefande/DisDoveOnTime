@@ -1,0 +1,411 @@
+/* Discord Scheduler – UI Toolkit compatible dark theme (no gap, no focus-within) */
+
+.root {
+    flex-direction: row;
+    height: 100%;
+    width: 100%;
+    padding: 12px;
+    background-color: #1b1d20;
+    color: #e8e8e8;
+}
+
+/* Left nav */
+.nav {
+    width: 250px;
+    flex-shrink: 0;
+    padding: 12px;
+    border-radius: 12px;
+    background-color: #24262b;
+    border-width: 1px;
+    border-color: #363a40;
+}
+
+.content {
+    flex-grow: 1;
+    min-height: 0;
+    padding: 14px;
+    border-radius: 12px;
+    background-color: #24262b;
+    border-width: 1px;
+    border-color: #363a40;
+    flex-direction: column;
+}
+
+/* Typography */
+.appTitle {
+    -unity-font-style: bold;
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.h1 {
+    -unity-font-style: bold;
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.h2 {
+    -unity-font-style: bold;
+    font-size: 14px;
+    margin-top: 2px;
+    margin-bottom: 8px;
+    opacity: 0.95;
+}
+
+.small {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.hint {
+    font-size: 12px;
+    opacity: 0.80;
+    margin-top: 6px;
+}
+
+/* Layout helpers */
+.spacer { flex-grow: 1; }
+
+.view {
+    display: none;
+    height: 100%;
+    flex-grow: 1;
+    min-height: 0;
+    flex-direction: column;
+}
+
+/* Scroll containers (fix shrinking/overlap at 720p) */
+.vscroll {
+    flex-grow: 1;
+    min-height: 0;
+    margin-top: 6px;
+}
+
+/* add a tiny right padding so the scrollbar doesn't cover content */
+.vscroll .unity-scroll-view__content-container {
+    padding-right: 8px;
+}
+
+/* Split panes */
+.split {
+    flex-direction: row;
+    height: 100%;
+}
+
+.splitFill {
+    flex-grow: 1;
+    min-height: 0;
+    margin-top: 8px;
+}
+
+.pane {
+    flex-grow: 1;
+    min-height: 0;
+    padding: 12px;
+    border-radius: 12px;
+    background-color: #202226;
+    border-width: 1px;
+    border-color: #343842;
+}
+
+/* list panes should be wide enough so text doesn't truncate badly */
+.paneList {
+    min-width: 320px;
+    max-width: 380px;
+    flex-shrink: 0;
+}
+
+.paneScroll {
+    flex-grow: 1;
+    min-height: 0;
+    margin-top: 6px;
+}
+
+/* Rows */
+.row {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    margin-top: 8px;
+}
+
+.rowTop { align-items: flex-start; }
+
+/* spacing between row children (replacement for gap) */
+.row > * { margin-right: 8px; }
+.row > :last-child { margin-right: 0; }
+
+.rowWrap { flex-wrap: wrap; }
+.rowWrap > * { margin-top: 6px; }
+
+/* Field columns (date/time) */
+.fieldCol {
+    flex-direction: column;
+    margin-right: 14px;
+}
+.fieldCol:last-child { margin-right: 0; }
+
+.fieldLabel {
+    font-size: 12px;
+    opacity: 0.85;
+    margin-bottom: 4px;
+}
+
+.multiline { height: 240px; min-height: 200px; }
+.bodyField { height: 240px; min-height: 200px; }
+
+.counterLabel {
+    align-self: flex-end;
+    margin-top: 4px;
+    opacity: 0.85;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background-color: #1b1d20;
+    border-width: 1px;
+    border-color: #343842;
+}
+
+.toolbarCounter { margin-top: 0; }
+.bodyToolbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 6px;
+    gap: 10px;
+}
+.bodyModeRow {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+.radioRow {
+    flex-direction: row;
+    align-items: center;
+}
+.radioToggle {
+    min-width: 16px;
+    margin-top: 2px;
+}
+.radioLabel {
+    margin-left: 4px;
+    margin-top: 0;
+}
+
+/* Groups */
+.group {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    background-color: #202226;
+    border-width: 1px;
+    border-color: #343842;
+    flex-shrink: 0;
+}
+
+/* Lists */
+.list {
+    flex-grow: 1;
+    min-height: 220px;
+    border-radius: 10px;
+    background-color: #1a1b1f;
+    border-width: 1px;
+    border-color: #343842;
+}
+
+/* Log */
+.log {
+    flex-grow: 1;
+    border-radius: 10px;
+    background-color: #1a1b1f;
+    border-width: 1px;
+    border-color: #343842;
+    padding: 10px;
+}
+
+/* Buttons */
+Button {
+    height: 34px;
+    background-color: #2f3137;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #404552;
+}
+
+Button:hover { background-color: #3a3d46; }
+Button:active { background-color: #454a57; }
+Button:disabled { opacity: 0.45; }
+
+Button .unity-button__text { color: #e8e8e8; }
+
+.navBtn { height: 34px; margin-top: 6px; }
+.navBtn:first-child { margin-top: 0; }
+
+.primary {
+    -unity-font-style: bold;
+    border-color: #535b70;
+}
+
+/* Labels (TextField/Dropdown/Toggle címkék) */
+.unity-base-field__label,
+.unity-toggle__label {
+    color: #e8e8e8;
+    opacity: 0.92;
+}
+
+
+/* Text inputs – cover multiple internal classnames across UI Toolkit versions */
+TextField .unity-text-field__input,
+TextField .unity-base-text-field__input,
+IntegerField .unity-text-field__input,
+IntegerField .unity-base-text-field__input,
+.unity-text-field__input,
+.unity-base-text-field__input {
+    background-color: #15161a;
+    color: #e8e8e8;
+
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #3b3f4b;
+
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+/* Focus */
+TextField:focus .unity-text-field__input,
+TextField:focus .unity-base-text-field__input,
+IntegerField:focus .unity-text-field__input,
+IntegerField:focus .unity-base-text-field__input {
+    border-color: #5a637a;
+}
+
+/* Dropdown inputs – cover multiple internal classnames */
+DropdownField .unity-popup-field__input,
+DropdownField .unity-base-popup-field__input,
+.unity-popup-field__input,
+.unity-base-popup-field__input {
+    background-color: #15161a;
+    color: #e8e8e8;
+
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #3b3f4b;
+
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+/* Toggle checkbox */
+Toggle .unity-toggle__checkmark {
+    background-color: #15161a;
+    border-width: 1px;
+    border-color: #3b3f4b;
+    border-radius: 6px;
+}
+
+/* temporarily hide ping/role UI */
+.ping-ui {
+    display: none;
+}
+
+TextField, IntegerField, TextArea {
+    --unity-cursor-color: #ffffff;
+    --unity-selection-color: rgba(120,160,255,0.35);
+}
+
+
+Toggle:hover .unity-toggle__checkmark { border-color: #5a637a; }
+
+/* ===== Modal (date/time picker) – colors & contrast ===== */
+.modalOverlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+
+    align-items: center;
+    justify-content: center;
+
+    /* stronger dim + slight blue tint to match theme */
+    background-color: rgba(0, 0, 0, 0.65);
+}
+
+.modalCard {
+    /* make modal clearly separated from background */
+    background-color: #202226;
+
+    border-width: 1px;
+    border-color: #343842;
+    border-radius: 12px;
+
+    /* subtle highlight + depth */
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+}
+
+.modalTitle {
+    color: #e8e8e8;
+    opacity: 0.96;
+}
+
+.modalBody {
+    color: #e8e8e8;
+}
+
+/* Make picker buttons look less “flat grey” inside modal */
+.modalCard Button {
+    background-color: #2b2f37;
+    border-color: #434a58;
+}
+
+.modalCard Button:hover { background-color: #343944; }
+.modalCard Button:active { background-color: #3e4452; }
+
+/* Close button should look like an overlay control, not a primary action */
+.modalClose {
+    background-color: #23262c;
+    border-color: #3a3f4b;
+}
+
+.modalClose:hover { background-color: #2c3038; }
+.modalClose:active { background-color: #363b46; }
+
+/* Selected picker cells (your code adds .isSelected) */
+.isSelected {
+    background-color: #2f62ff;
+    border-color: #2f62ff;
+}
+
+/* Day-of-week labels a bit brighter inside modal */
+.dateDow,
+.timeTitle {
+    color: #e8e8e8;
+    opacity: 0.85;
+}
+
+/* Optional: make text in picker buttons always readable */
+.modalCard Button .unity-button__text {
+    color: #e8e8e8;
+    opacity: 0.95;
+}
+
+.mediaPreviewContainer {
+    margin-top: 8px;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mediaPreview {
+    width: 320px;
+    height: 180px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #343842;
+    background-color: #111217;
+    -unity-background-scale-mode: scale-to-fit;
+}
