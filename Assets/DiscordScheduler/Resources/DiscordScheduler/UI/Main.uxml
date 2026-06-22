@@ -1,92 +1,184 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
-    <Style src="project://database/Assets/DiscordScheduler/Resources/DiscordScheduler/UI/Main.uss?fileID=7433441132597879392&amp;guid=9c66f5ddbf60dc5478a547bb060704bf&amp;type=3#Main"/>
-    <ui:VisualElement name="Root" class="root">
-        <ui:VisualElement name="LeftNav" class="nav">
-            <ui:Label text="Discord Scheduler" class="appTitle"/>
-            <ui:Button name="btnTargets" text="Targets (Webhooks)" class="navBtn"/>
-            <ui:Button name="btnNewPost" text="New post" class="navBtn"/>
-            <ui:Button name="btnPosts" text="Scheduled posts" class="navBtn"/>
-            <ui:Button name="btnSettings" text="Settings" class="navBtn"/>
-            <ui:Button name="btnLog" text="Log" class="navBtn"/>
+    <ui:Style src="project://database/Assets/DiscordScheduler/Resources/DiscordScheduler/UI/Main.uss?fileID=7433441132597879392&amp;guid=9c66f5ddbf60dc5478a547bb060704bf&amp;type=3#Main"/>
+    <ui:VisualElement name="Root" class="root appRoot">
+        <ui:VisualElement name="LeftNav" class="nav appSidebar">
+            <ui:VisualElement class="brandBlock">
+                <ui:Label text="DisDoveOnTime" class="appTitle brandTitle"/>
+                <ui:Label text="Discord scheduler" class="brandSubtitle"/>
+            </ui:VisualElement>
+            <ui:VisualElement class="navList">
+                <ui:Button name="btnDashboard" text="Dashboard" class="navBtn navItem" tooltip="Overview of queue health, next post, warnings, and the fastest actions."/>
+                <ui:Button name="btnTargets" text="Targets" class="navBtn navItem" tooltip="Manage Discord webhook destinations before scheduling posts."/>
+                <ui:Button name="btnNewPost" text="New post" class="navBtn navItem" tooltip="Create a message, preview the payload, then schedule it."/>
+                <ui:Button name="btnPosts" text="Posts" class="navBtn navItem" tooltip="Inspect, edit, delete, or manually send saved posts."/>
+                <ui:Button name="btnReview" text="Review" class="navBtn navItem" tooltip="Resolve ambiguous sends that need a manual decision."/>
+                <ui:Button name="btnSettings" text="Settings" class="navBtn navItem" tooltip="Configure safety defaults, local data, support export, retention, and restore."/>
+                <ui:Button name="btnLog" text="Log" class="navBtn navItem" tooltip="View local diagnostics with secrets expected to stay redacted."/>
+            </ui:VisualElement>
             <ui:VisualElement class="spacer"/>
-            <ui:Label name="lblStatus" text="Status: -" class="small"/>
+            <ui:VisualElement class="healthMini" tooltip="Quick local status. If this changes to review or backoff, open Dashboard or Review for details.">
+                <ui:VisualElement class="healthMiniHeader">
+                    <ui:Label text="Local health" class="healthMiniTitle"/>
+                    <ui:Label name="lblHealthState" text="Ready" class="statusPill statusReady"/>
+                </ui:VisualElement>
+                <ui:Label name="lblStatus" text="Status: -" class="small healthSummary"/>
+                <ui:VisualElement class="metricMiniRow">
+                    <ui:Label name="lblNavPending" text="Pending 0" class="miniMetric"/>
+                    <ui:Label name="lblNavQueue" text="Queue 0" class="miniMetric"/>
+                    <ui:Label name="lblNavReview" text="Review 0" class="miniMetric"/>
+                </ui:VisualElement>
+            </ui:VisualElement>
         </ui:VisualElement>
-        <ui:VisualElement name="RightContent" class="content" style="min-width: 600px;">
-            <ui:VisualElement name="viewTargets" class="view">
-                <ui:Label text="Targets (Webhook destinations)" class="h1"/>
+        <ui:VisualElement name="RightContent" class="content contentShell">
+            <ui:VisualElement name="viewDashboard" class="view dashboardView" style="display: flex;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Dashboard" class="h1"/>
+                        <ui:Label text="Local queue and Discord send health" class="subtitle"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="headerActions">
+                        <ui:Button name="btnDashboardTargets" text="Add target" tooltip="Create the webhook destination needed before posts can be scheduled."/>
+                        <ui:Button name="btnDashboardReview" text="Review queue" tooltip="Open ambiguous sends and decide whether to inspect, retry, or dismiss."/>
+                        <ui:Button name="btnDashboardNewPost" text="New post" class="primary" tooltip="Start the main flow: write content, preview it, then schedule."/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="metricStrip">
+                    <ui:VisualElement class="metricCard" tooltip="Saved webhook destinations available for scheduling.">
+                        <ui:Label text="Targets" class="metricLabel"/>
+                        <ui:Label name="lblMetricTargets" text="0" class="metricValue"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="metricCard" tooltip="Posts waiting for their scheduled local send time.">
+                        <ui:Label text="Pending" class="metricLabel"/>
+                        <ui:Label name="lblMetricPending" text="0" class="metricValue"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="metricCard" tooltip="Posts actively queued, waiting for retry/backoff, or being processed.">
+                        <ui:Label text="Queue" class="metricLabel"/>
+                        <ui:Label name="lblMetricQueue" text="0" class="metricValue"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="metricCard" tooltip="Posts that need a manual review before another action.">
+                        <ui:Label text="Review" class="metricLabel"/>
+                        <ui:Label name="lblMetricReview" text="0" class="metricValue"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="metricCard" tooltip="Warnings that may need attention before sending feels reliable.">
+                        <ui:Label text="Warnings" class="metricLabel"/>
+                        <ui:Label name="lblMetricWarnings" text="0" class="metricValue"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="dashboardGrid">
+                    <ui:VisualElement class="surface dashboardPanel">
+                        <ui:Label text="Operational summary" class="h2"/>
+                        <ui:Label name="lblDashboardSummary" text="Status: -" class="bodyText"/>
+                        <ui:Label name="lblQueueHealthSummary" text="Queue ready. No active Discord wait state." class="hint"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="surface dashboardPanel">
+                        <ui:Label text="Next post" class="h2"/>
+                        <ui:Label name="lblNextPost" text="No pending posts." class="bodyText"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="surface dashboardPanel dashboardPanelWide">
+                        <ui:Label text="Safety" class="h2"/>
+                        <ui:Label name="lblSafetySummary" text="Webhook URLs stay local. Review ambiguous sends before retrying." class="bodyText"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="viewTargets" class="view" style="display: none;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Targets" class="h1"/>
+                        <ui:Label text="Webhook destinations and channel labels" class="subtitle"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
                 <ui:VisualElement class="split splitFill">
                     <ui:VisualElement class="pane paneList">
                         <ui:Label text="Saved targets" class="h2"/>
                         <ui:ListView name="targetsList" class="list"/>
+                        <ui:Label name="lblTargetsEmpty" text="No targets yet. Create a webhook target first, then schedule posts." class="emptyState compactEmpty"/>
                         <ui:VisualElement class="row">
-                            <ui:Button name="btnTargetAdd" text="New"/>
-                            <ui:Button name="btnTargetDelete" text="Delete"/>
-                            <ui:Button name="btnTargetTest" text="Send test"/>
+                            <ui:Button name="btnTargetAdd" text="New target" tooltip="Clear the form and start a new Discord webhook target."/>
+                            <ui:Button name="btnTargetDelete" text="Delete" class="dangerButton" tooltip="Delete the selected target only after the impact guard confirms what uses it."/>
+                            <ui:Button name="btnTargetTest" text="Test webhook" class="rowEnd" tooltip="Send a small test request to verify this webhook destination."/>
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="pane">
-                        <ui:Label text="Edit" class="h2"/>
+                        <ui:Label text="Target details" class="h2"/>
                         <ui:ScrollView name="svTargetEdit" mode="Vertical" class="paneScroll vscroll">
-                            <ui:TextField name="tfTargetName" label="Name"/>
-                            <ui:TextField name="tfTargetServer" label="Discord server (label)"/>
-                            <ui:TextField name="tfTargetChannel" label="Discord channel (label)"/>
-                            <ui:TextField name="tfTargetWebhook" label="Webhook URL"/>
-                            <ui:TextField name="tfTargetUsername" label="Override username (optional)"/>
-                            <ui:TextField name="tfTargetAvatar" label="Override avatar URL (optional)"/>
+                            <ui:TextField name="tfTargetName" label="Name" tooltip="A local friendly name, for example Announcements or Patch notes."/>
+                            <ui:TextField name="tfTargetServer" label="Discord server (label)" tooltip="Local label only. This helps humans recognize the destination."/>
+                            <ui:TextField name="tfTargetChannel" label="Discord channel (label)" tooltip="Local label only. It does not change Discord permissions or channels."/>
+                            <ui:TextField name="tfTargetWebhook" label="Webhook URL" tooltip="Paste the Discord webhook URL. Treat it as a secret; exports and logs should redact it."/>
+                            <ui:Label text="Webhook URLs are secrets. Keep screenshots and exports redacted." class="hint secretHint"/>
+                            <ui:Label name="lblTargetHealth" text="Webhook health: select or enter a target." class="hint"/>
+                            <ui:Label name="lblTargetImpact" text="Target impact: no changes selected." class="hint"/>
+                            <ui:TextField name="tfTargetUsername" label="Override username (optional)" tooltip="Optional sender name for this webhook. Leave empty to use Discord's webhook default."/>
+                            <ui:TextField name="tfTargetAvatar" label="Override avatar URL (optional)" tooltip="Optional avatar image URL for this webhook sender. Leave empty for the default avatar."/>
                             <ui:VisualElement class="row">
-                                <ui:Button name="btnTargetSave" text="Save" class="primary"/>
-                                <ui:Label name="lblTargetHint" text="" class="hint"/>
+                                <ui:Button name="btnTargetSave" text="Save target" class="primary" tooltip="Validate and save this webhook target locally."/>
+                                <ui:Label name="lblTargetHint" text="" class="hint rowEnd"/>
                             </ui:VisualElement>
                         </ui:ScrollView>
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
+
             <ui:VisualElement name="viewNewPost" class="view" style="display: none;">
-                <ui:Label text="Schedule a new post" class="h1"/>
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="New post" class="h1"/>
+                        <ui:Label text="Schedule a Discord webhook post from this machine" class="subtitle"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
                 <ui:ScrollView name="svNewPost" mode="Vertical" class="vscroll">
-                    <ui:DropdownField name="ddPostTarget" label="Target"/>
-                    <ui:TextField name="tfPostTitle" label="Post title (Embed title)"/>
-                    <ui:TextField name="tfPostBody" label="" multiline="true" class="multiline bodyField"/>
-                    <ui:VisualElement class="bodyToolbar">
-                        <ui:VisualElement class="bodyModeRow">
-                            <ui:VisualElement class="radioRow">
-                                <ui:Toggle name="tgPostModeNormal" label="" class="radioToggle" value="true"/>
-                                <ui:Label text="Normal (content)" class="radioLabel"/>
+                    <ui:VisualElement class="formGrid">
+                        <ui:VisualElement class="surface formPanel">
+                            <ui:Label text="Destination and content" class="h2"/>
+                            <ui:DropdownField name="ddPostTarget" label="Target" tooltip="Choose the saved webhook destination for this post."/>
+                            <ui:TextField name="tfPostTitle" label="Post title (Embed title)" tooltip="Used as the Discord embed title in Embed mode. In Message mode this can stay empty."/>
+                            <ui:TextField name="tfPostBody" label="" multiline="true" class="multiline bodyField" tooltip="Write the message body. The counter below warns before Discord payload limits."/>
+                            <ui:VisualElement class="bodyToolbar">
+                                <ui:VisualElement class="bodyModeRow">
+                                    <ui:VisualElement class="radioRow" tooltip="Send plain Discord message content.">
+                                        <ui:Toggle name="tgPostModeNormal" label="" class="radioToggle" value="true"/>
+                                        <ui:Label text="Message" class="radioLabel"/>
+                                    </ui:VisualElement>
+                                    <ui:VisualElement class="radioRow" tooltip="Send the title and body inside a Discord embed card.">
+                                        <ui:Toggle name="tgPostModeEmbed" label="" class="radioToggle"/>
+                                        <ui:Label text="Embed" class="radioLabel"/>
+                                    </ui:VisualElement>
+                                    <ui:Label text="Message: plain content. Embed: title and body in a Discord card." class="hint"/>
+                                </ui:VisualElement>
+                                <ui:Label name="lblPostBodyCounter" text="0 / 1980 (remaining: 1980)" class="hint counterLabel toolbarCounter"/>
                             </ui:VisualElement>
-                            <ui:VisualElement class="radioRow">
-                                <ui:Toggle name="tgPostModeEmbed" label="" class="radioToggle"/>
-                                <ui:Label text="Embed (card)" class="radioLabel"/>
+                        </ui:VisualElement>
+                        <ui:VisualElement class="surface formPanel">
+                            <ui:Label text="Schedule" class="h2"/>
+                            <ui:VisualElement class="row rowTop">
+                                <ui:VisualElement class="fieldCol">
+                                    <ui:Label text="Date (YYYY-MM-DD)" class="fieldLabel"/>
+                                    <ui:TextField name="tfDate" class="smallField" tooltip="Local scheduled date in Europe/Budapest, formatted as YYYY-MM-DD."/>
+                                </ui:VisualElement>
+                                <ui:VisualElement class="fieldCol fieldColEnd">
+                                    <ui:Label text="Time (HH:MM)" class="fieldLabel"/>
+                                    <ui:TextField name="tfTime" class="smallField" tooltip="Local scheduled time in 24-hour HH:MM format."/>
+                                </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label text="Normal: plain message. Embed: shown in a card." class="hint"/>
-                        </ui:VisualElement>
-                        <ui:Label name="lblPostBodyCounter" text="0 / 1980 (remaining: 1980)" class="hint counterLabel toolbarCounter"/>
-                    </ui:VisualElement>
-                    <ui:VisualElement class="row rowTop">
-                        <ui:VisualElement class="fieldCol">
-                            <ui:Label text="Date (YYYY-MM-DD)" class="fieldLabel"/>
-                            <ui:TextField name="tfDate" class="smallField"/>
-                        </ui:VisualElement>
-                        <ui:VisualElement class="fieldCol">
-                            <ui:Label text="Time (HH:MM)" class="fieldLabel"/>
-                            <ui:TextField name="tfTime" class="smallField"/>
+                            <ui:Label name="lblLocalHint" text="Time zone: Europe/Budapest" class="hint"/>
                         </ui:VisualElement>
                     </ui:VisualElement>
-                    <ui:Label name="lblLocalHint" text="Time zone: Europe/Hamburg" class="hint"/>
                     <ui:VisualElement class="group">
-                        <ui:Label text="Attachment (image / video) – optional, max 10MB (Non-Nitro)" class="h2"/>
-                        <ui:Toggle name="tgAttachMedia" label="Add attachment"/>
+                        <ui:Label text="Attachment (image / video) - optional, max 10 MiB app guard" class="h2"/>
+                        <ui:Toggle name="tgAttachMedia" label="Add attachment" tooltip="Attach one local media file. The app copies it into its managed Attachments folder."/>
                         <ui:VisualElement name="mediaOptionsNew" class="row rowWrap">
-                            <ui:Toggle name="tgMediaIsImage" label="Image"/>
-                            <ui:Toggle name="tgMediaIsVideo" label="Video (mp4/webm/mov)"/>
+                            <ui:Toggle name="tgMediaIsImage" label="Image" tooltip="Treat the selected file as an image attachment."/>
+                            <ui:Toggle name="tgMediaIsVideo" label="Video (mp4/webm/mov)" class="rowEnd" tooltip="Treat the selected file as a video attachment."/>
                         </ui:VisualElement>
-                        <ui:TextField name="tfMediaPath" label="File path (paste)"/>
+                        <ui:TextField name="tfMediaPath" label="File path (paste)" tooltip="Paste or browse to a local media file. It will be copied when scheduled."/>
                         <ui:VisualElement name="mediaButtonsNew" class="row rowWrap">
-                            <ui:Button name="btnMediaBrowse" text="Browse..."/>
-                            <ui:Button name="btnMediaClear" text="Clear attachment"/>
-                            <ui:Button name="btnMediaOpenAttachments" text="Open Attachments folder"/>
-                            <ui:Button name="btnMediaRefresh" text="Refresh Attachments"/>
+                            <ui:Button name="btnMediaBrowse" text="Browse..." tooltip="Pick a local image or video file."/>
+                            <ui:Button name="btnMediaClear" text="Clear attachment" tooltip="Remove the attachment from this draft only."/>
+                            <ui:Button name="btnMediaOpenAttachments" text="Open Attachments folder" tooltip="Open the managed local folder used for copied attachments."/>
+                            <ui:Button name="btnMediaRefresh" text="Refresh Attachments" class="rowEnd" tooltip="Reload files from the managed Attachments folder."/>
                         </ui:VisualElement>
-                        <ui:DropdownField name="ddMediaPick" label="Pick from Attachments"/>
+                        <ui:DropdownField name="ddMediaPick" label="Pick from Attachments" tooltip="Choose a file already managed by the app."/>
                         <ui:Label name="lblMediaHint" text="Tip: when scheduling, the app copies the file into the Attachments folder." class="hint"/>
                         <ui:VisualElement name="mediaPreviewNew" class="mediaPreviewContainer">
                             <ui:Label text="Preview" class="fieldLabel"/>
@@ -95,72 +187,90 @@
                     </ui:VisualElement>
                     <ui:VisualElement class="group ping-ui">
                         <ui:Label text="Allowed mentions (ping rules)" class="h2"/>
-                        <ui:Toggle name="tgAllowUsers" label="Allow user mentions"/>
-                        <ui:Toggle name="tgAllowRoles" label="Allow role mentions"/>
-                        <ui:Toggle name="tgAllowEveryone" label="Allow @everyone/@here"/>
-                        <ui:TextField name="tfMentionUserIds" label="User IDs (CSV, optional)"/>
-                        <ui:TextField name="tfMentionRoleIds" label="Role IDs (CSV, optional)"/>
+                        <ui:Toggle name="tgAllowUsers" label="Allow user mentions" tooltip="Allow direct user pings for this post only."/>
+                        <ui:Toggle name="tgAllowRoles" label="Allow role mentions" tooltip="Allow role pings for this post only."/>
+                        <ui:Toggle name="tgAllowEveryone" label="Allow @everyone/@here" tooltip="High-risk ping option for this post only. Keep disabled unless intentional."/>
+                        <ui:TextField name="tfMentionUserIds" label="User IDs (CSV, optional)" tooltip="Optional comma-separated user IDs that may be mentioned."/>
+                        <ui:TextField name="tfMentionRoleIds" label="Role IDs (CSV, optional)" tooltip="Optional comma-separated role IDs that may be mentioned."/>
                         <ui:Label text="Default: all mentions disabled (safe)." class="hint"/>
                     </ui:VisualElement>
                     <ui:VisualElement class="group">
                         <ui:Label text="Delay handling (power off / sleep)" class="h2"/>
-                        <ui:DropdownField name="ddOffPolicy" label="If the PC/app was not running"/>
-                        <ui:DropdownField name="ddSleepPolicy" label="If a time jump happened due to sleep"/>
+                        <ui:DropdownField name="ddOffPolicy" label="If the PC/app was not running" tooltip="Choose what should happen when a scheduled time passed while the app was closed."/>
+                        <ui:DropdownField name="ddSleepPolicy" label="If a time jump happened due to sleep" tooltip="Choose what should happen when sleep or hibernation caused a large time jump."/>
                         <ui:Label text="Options: Send (on next run) / Mark as Missed / Mark as Failed." class="hint"/>
                     </ui:VisualElement>
+                    <ui:VisualElement name="payloadPreviewPanel" class="group">
+                        <ui:VisualElement class="row rowWrap">
+                            <ui:Label text="Dry-run preview" class="h2"/>
+                            <ui:Button name="btnPayloadPreviewRefresh" text="Refresh preview" class="rowEnd" tooltip="Build the exact local payload preview without sending anything to Discord."/>
+                        </ui:VisualElement>
+                        <ui:Label name="lblPayloadPreviewHeadline" text="Preview has not been generated yet." class="bodyText"/>
+                        <ui:Label name="lblPayloadPreviewDigest" text="No Discord request has been built." class="hint"/>
+                        <ui:Label name="lblPayloadPreviewDetails" text="Preview uses the same local normalizer and validator as sending." class="hint"/>
+                        <ui:Label name="lblPayloadPreviewPayload" text="" class="small payloadPreviewPayload"/>
+                    </ui:VisualElement>
                     <ui:VisualElement class="row">
-                        <ui:Button name="btnSchedule" text="Schedule post" class="primary"/>
-                        <ui:Label name="lblScheduleResult" text="" class="hint"/>
+                        <ui:Button name="btnSchedule" text="Schedule post" class="primary" tooltip="Save this post locally for the selected future send time."/>
+                        <ui:Label name="lblScheduleResult" text="" class="hint rowEnd"/>
                     </ui:VisualElement>
                 </ui:ScrollView>
             </ui:VisualElement>
-            <ui:VisualElement name="viewPosts" class="view">
-                <ui:Label text="Scheduled posts" class="h1"/>
+
+            <ui:VisualElement name="viewPosts" class="view" style="display: none;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Posts" class="h1"/>
+                        <ui:Label text="Scheduled, sent and failed local posts" class="subtitle"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
                 <ui:VisualElement class="split splitFill">
                     <ui:VisualElement class="pane paneList">
-                        <ui:Label text="List" class="h2"/>
+                        <ui:Label text="Post list" class="h2"/>
                         <ui:ListView name="postsList" class="list"/>
-                        <ui:VisualElement class="row">
-                            <ui:Button name="btnPostDelete" text="Delete"/>
-                            <ui:Button name="btnPostForceSend" text="Send now"/>
-                            <ui:Button name="btnPostDeleteSent" text="Delete sent"/>
+                        <ui:Label name="lblPostsEmpty" text="No posts yet. Create a post when you are ready to schedule the first Discord message." class="emptyState compactEmpty"/>
+                        <ui:VisualElement class="row rowWrap">
+                            <ui:Button name="btnPostDelete" text="Delete" class="dangerButton" tooltip="Delete the selected local post after its impact guard confirms it is safe."/>
+                            <ui:Button name="btnPostForceSend" text="Send now" tooltip="Manually send the selected post now, using the same send path as the queue."/>
+                            <ui:Button name="btnPostDeleteSent" text="Delete sent" class="dangerButton rowEnd" tooltip="Clean up posts already marked sent. Does not delete messages from Discord."/>
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="pane">
-                        <ui:Label text="Edit" class="h2"/>
+                        <ui:Label text="Post details" class="h2"/>
                         <ui:ScrollView name="svPostEdit" mode="Vertical" class="paneScroll vscroll">
-                            <ui:DropdownField name="ddEditTarget" label="Target"/>
-                            <ui:TextField name="tfEditTitle" label="Title"/>
-                            <ui:TextField name="tfEditBody" label="" multiline="true" class="multiline bodyField"/>
+                            <ui:Label name="lblPostSelectionHint" text="Select a post from the list to inspect, edit, or send it." class="emptyState selectionHint"/>
+                            <ui:DropdownField name="ddEditTarget" label="Target" tooltip="Change the webhook destination for this local post."/>
+                            <ui:TextField name="tfEditTitle" label="Title" tooltip="Edit the Discord embed title for this post."/>
+                            <ui:TextField name="tfEditBody" label="" multiline="true" class="multiline bodyField" tooltip="Edit the message body. The counter below warns before Discord payload limits."/>
                             <ui:VisualElement class="bodyToolbar">
                                 <ui:VisualElement class="bodyModeRow">
-                                    <ui:VisualElement class="radioRow">
+                                    <ui:VisualElement class="radioRow" tooltip="Send plain Discord message content.">
                                         <ui:Toggle name="tgEditModeNormal" label="" class="radioToggle" value="true"/>
-                                        <ui:Label text="Normal (content)" class="radioLabel"/>
+                                        <ui:Label text="Message" class="radioLabel"/>
                                     </ui:VisualElement>
-                                    <ui:VisualElement class="radioRow">
+                                    <ui:VisualElement class="radioRow" tooltip="Send the title and body inside a Discord embed card.">
                                         <ui:Toggle name="tgEditModeEmbed" label="" class="radioToggle"/>
-                                        <ui:Label text="Embed (card)" class="radioLabel"/>
+                                        <ui:Label text="Embed" class="radioLabel"/>
                                     </ui:VisualElement>
-                                    <ui:Label text="Normal: plain message. Embed: shown in a card." class="hint"/>
+                                    <ui:Label text="Message: plain content. Embed: title and body in a Discord card." class="hint"/>
                                 </ui:VisualElement>
                                 <ui:Label name="lblEditBodyCounter" text="0 / 1980 (remaining: 1980)" class="hint counterLabel toolbarCounter"/>
                             </ui:VisualElement>
                             <ui:VisualElement class="row rowTop">
                                 <ui:VisualElement class="fieldCol">
                                     <ui:Label text="Date (YYYY-MM-DD)" class="fieldLabel"/>
-                                    <ui:TextField name="tfEditDate" class="smallField"/>
+                                    <ui:TextField name="tfEditDate" class="smallField" tooltip="Local scheduled date in Europe/Budapest, formatted as YYYY-MM-DD."/>
                                 </ui:VisualElement>
-                                <ui:VisualElement class="fieldCol">
+                                <ui:VisualElement class="fieldCol fieldColEnd">
                                     <ui:Label text="Time (HH:MM)" class="fieldLabel"/>
-                                    <ui:TextField name="tfEditTime" class="smallField"/>
+                                    <ui:TextField name="tfEditTime" class="smallField" tooltip="Local scheduled time in 24-hour HH:MM format."/>
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:TextField name="tfEditImagePath" label="Media path"/>
-                            <ui:DropdownField name="ddEditAttachmentPick" label="Pick from Attachments"/>
+                            <ui:TextField name="tfEditImagePath" label="Media path" tooltip="Current media path for this post. Prefer managed Attachments files for reliability."/>
+                            <ui:DropdownField name="ddEditAttachmentPick" label="Pick from Attachments" tooltip="Choose a file already managed by the app."/>
                             <ui:VisualElement class="row">
-                                <ui:Button name="btnEditImageClear" text="Clear media"/>
-                                <ui:Button name="btnEditRefreshAttachments" text="Refresh Attachments"/>
+                                <ui:Button name="btnEditImageClear" text="Clear media" tooltip="Remove media from this local post only."/>
+                                <ui:Button name="btnEditRefreshAttachments" text="Refresh Attachments" class="rowEnd" tooltip="Reload files from the managed Attachments folder."/>
                             </ui:VisualElement>
                             <ui:VisualElement name="mediaPreviewEdit" class="mediaPreviewContainer">
                                 <ui:Label text="Preview" class="fieldLabel"/>
@@ -168,51 +278,121 @@
                             </ui:VisualElement>
                             <ui:VisualElement class="ping-ui">
                                 <ui:Label text="Allowed mentions" class="h2"/>
-                                <ui:Toggle name="tgEditAllowUsers" label="User mentions"/>
-                                <ui:Toggle name="tgEditAllowRoles" label="Role mentions"/>
-                                <ui:Toggle name="tgEditAllowEveryone" label="@everyone/@here"/>
-                                <ui:TextField name="tfEditMentionUserIds" label="User IDs (CSV)"/>
-                                <ui:TextField name="tfEditMentionRoleIds" label="Role IDs (CSV)"/>
+                                <ui:Toggle name="tgEditAllowUsers" label="User mentions" tooltip="Allow direct user pings for this post only."/>
+                                <ui:Toggle name="tgEditAllowRoles" label="Role mentions" tooltip="Allow role pings for this post only."/>
+                                <ui:Toggle name="tgEditAllowEveryone" label="@everyone/@here" tooltip="High-risk ping option for this post only. Keep disabled unless intentional."/>
+                                <ui:TextField name="tfEditMentionUserIds" label="User IDs (CSV)" tooltip="Optional comma-separated user IDs that may be mentioned."/>
+                                <ui:TextField name="tfEditMentionRoleIds" label="Role IDs (CSV)" tooltip="Optional comma-separated role IDs that may be mentioned."/>
                             </ui:VisualElement>
                             <ui:Label text="Delay policy" class="h2"/>
-                            <ui:DropdownField name="ddEditOffPolicy" label="Off policy"/>
-                            <ui:DropdownField name="ddEditSleepPolicy" label="Sleep policy"/>
-                            <ui:Label name="lblEditStatus" text="Status: -" class="small"/>
+                            <ui:DropdownField name="ddEditOffPolicy" label="Off policy" tooltip="Choose what should happen if the app was closed when this post became due."/>
+                            <ui:DropdownField name="ddEditSleepPolicy" label="Sleep policy" tooltip="Choose what should happen if sleep or hibernation caused a large time jump."/>
+                            <ui:Label name="lblEditStatus" text="Status: -" class="small statusLine"/>
                             <ui:VisualElement class="row">
-                                <ui:Button name="btnPostSave" text="Save" class="primary"/>
-                                <ui:Button name="btnPostMarkPending" text="Back to Pending"/>
+                                <ui:Button name="btnPostSave" text="Save post" class="primary" tooltip="Validate and save changes to this local post."/>
+                                <ui:Button name="btnPostMarkPending" text="Requeue as pending" class="rowEnd" tooltip="Move a review/missed post back to pending after you have inspected it."/>
                             </ui:VisualElement>
                             <ui:Label name="lblEditResult" text="" class="hint"/>
                         </ui:ScrollView>
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
-            <ui:VisualElement name="viewSettings" class="view">
-                <ui:Label text="Settings" class="h1"/>
-                <ui:ScrollView name="svSettings" mode="Vertical" class="vscroll">
-                    <ui:IntegerField name="ifSleepThreshold" label="Sleep threshold (minutes). If a tick jumps by this amount (or more), it will be treated as sleep."/>
-                    <ui:Toggle name="tgDefaultAllowUsers" label="Default: allow user mentions"/>
-                    <ui:Toggle name="tgDefaultAllowRoles" label="Default: allow role mentions"/>
-                    <ui:Toggle name="tgDefaultAllowEveryone" label="Default: allow @everyone/@here"/>
-                    <ui:TextField name="tfDefaultUserIds" label="Default user IDs (CSV)"/>
-                    <ui:TextField name="tfDefaultRoleIds" label="Default role IDs (CSV)"/>
-                    <ui:DropdownField name="ddDefaultOffPolicy" label="Default off policy"/>
-                    <ui:DropdownField name="ddDefaultSleepPolicy" label="Default sleep policy"/>
-                    <ui:Label name="lblPaths" text="Paths: -" class="small"/>
-                    <ui:VisualElement class="row rowWrap">
-                        <ui:Button name="btnSaveSettings" text="Save" class="primary"/>
-                        <ui:Button name="btnOpenDataFolder" text="Open Data folder"/>
-                        <ui:Button name="btnOpenAttachments2" text="Open Attachments folder"/>
+
+            <ui:VisualElement name="viewReview" class="view" style="display: none;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Review" class="h1"/>
+                        <ui:Label text="Ambiguous sends and posts that need a manual decision" class="subtitle"/>
                     </ui:VisualElement>
-                    <ui:Label name="lblSettingsResult" text="" class="hint"/>
+                    <ui:VisualElement class="headerActions">
+                        <ui:Button name="btnReviewRefresh" text="Refresh" tooltip="Reload the NeedsReview queue."/>
+                        <ui:Button name="btnReviewOpenPosts" text="Open selected in Posts" class="primary" tooltip="Inspect and edit the selected item before deciding."/>
+                        <ui:Button name="btnReviewRetry" text="Retry selected" tooltip="Retry only after checking evidence; ambiguous sends are not retried automatically."/>
+                        <ui:Button name="btnReviewDismiss" text="Dismiss selected" class="dangerButton" tooltip="Mark the selected review item as handled without retrying."/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="surface reviewSummaryPanel">
+                    <ui:Label name="lblReviewSummary" text="No posts need manual review." class="bodyText"/>
+                    <ui:Label text="Ambiguous sends are not retried automatically. Review before requeueing." class="hint"/>
+                    <ui:Label name="lblReviewSelectedEvidence" text="Select a NeedsReview post to inspect retry evidence." class="hint"/>
+                </ui:VisualElement>
+                <ui:Label name="lblReviewEmpty" text="No NeedsReview posts right now." class="emptyState"/>
+                <ui:ListView name="reviewList" class="list reviewList"/>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="viewSettings" class="view" style="display: none;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Settings" class="h1"/>
+                        <ui:Label text="Safety defaults, delay policy and local data paths" class="subtitle"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:ScrollView name="svSettings" mode="Vertical" class="vscroll">
+                    <ui:VisualElement class="surface formPanel">
+                        <ui:Label text="Delay and mention defaults" class="h2"/>
+                        <ui:IntegerField name="ifSleepThreshold" label="Sleep threshold (minutes). If a tick jumps by this amount (or more), it will be treated as sleep." tooltip="Large local clock jumps can mean the PC slept. This threshold decides when sleep policy applies."/>
+                        <ui:Toggle name="tgDefaultAllowUsers" label="Default: allow user mentions" tooltip="Default mention rule for new posts. Keep off unless you intentionally allow user pings."/>
+                        <ui:Toggle name="tgDefaultAllowRoles" label="Default: allow role mentions" tooltip="Default mention rule for new posts. Keep off unless you intentionally allow role pings."/>
+                        <ui:Toggle name="tgDefaultAllowEveryone" label="Default: allow @everyone/@here" tooltip="Highest-risk ping default. Keep off unless you explicitly want broad Discord notifications."/>
+                        <ui:TextField name="tfDefaultUserIds" label="Default user IDs (CSV)" tooltip="Optional comma-separated user IDs allowed when user mentions are enabled."/>
+                        <ui:TextField name="tfDefaultRoleIds" label="Default role IDs (CSV)" tooltip="Optional comma-separated role IDs allowed when role mentions are enabled."/>
+                        <ui:DropdownField name="ddDefaultOffPolicy" label="Default off policy" tooltip="Default behavior for future posts when the app was closed at send time."/>
+                        <ui:DropdownField name="ddDefaultSleepPolicy" label="Default sleep policy" tooltip="Default behavior for future posts when sleep or hibernation caused a large time jump."/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="surface formPanel">
+                        <ui:Label text="Local data" class="h2"/>
+                        <ui:Label name="lblPaths" text="Paths: -" class="small"/>
+                        <ui:VisualElement class="row rowWrap">
+                            <ui:Button name="btnSaveSettings" text="Save settings" class="primary" tooltip="Save safety defaults and local settings."/>
+                            <ui:Button name="btnOpenDataFolder" text="Open Data folder" tooltip="Open the local folder that contains app data and diagnostics."/>
+                            <ui:Button name="btnOpenAttachments2" text="Open Attachments folder" class="rowEnd" tooltip="Open the managed folder used for copied media attachments."/>
+                        </ui:VisualElement>
+                        <ui:Label name="lblSettingsResult" text="" class="hint"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="surface formPanel">
+                        <ui:Label text="Support and secrets" class="h2"/>
+                        <ui:Label name="lblSupportBundleSummary" text="Support bundle dry-run has not been generated yet." class="bodyText"/>
+                        <ui:Label name="lblSecretStorageSummary" text="Secret storage status: -" class="hint"/>
+                        <ui:Label name="lblSecretMigrationSummary" text="Secret migration dry-run has not been generated yet." class="hint"/>
+                        <ui:VisualElement class="row rowWrap">
+                            <ui:Button name="btnSupportBundleDryRun" text="Dry-run support bundle" tooltip="Preview what a support bundle would include before exporting files."/>
+                            <ui:Button name="btnSupportBundleExport" text="Export redacted bundle" class="primary" tooltip="Export diagnostics with webhook tokens redacted by default."/>
+                            <ui:Button name="btnSecretMigrationDryRun" text="Dry-run secret refs" tooltip="Check which webhook secrets can move to protected references without changing data."/>
+                            <ui:Button name="btnSecretMigrationApplyRefs" text="Apply verified refs" class="rowEnd" tooltip="Write protected secret references only after the dry-run confirms the migration."/>
+                        </ui:VisualElement>
+                        <ui:Label name="lblSupportBundleResult" text="" class="hint"/>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="surface formPanel">
+                        <ui:Label text="Retention and recovery" class="h2"/>
+                        <ui:Label name="lblRetentionSummary" text="Retention dry-run has not been generated yet." class="bodyText"/>
+                        <ui:Label name="lblRestoreSummary" text="Restore safety check has not been generated yet." class="hint"/>
+                        <ui:TextField name="tfRestoreFilePath" label="Restore JSON path" tooltip="Path to a local backup JSON file. Always run dry-run before applying restore."/>
+                        <ui:VisualElement class="row rowWrap">
+                            <ui:Button name="btnRetentionDryRun" text="Dry-run retention" tooltip="List what cleanup would delete, protect, and how much space it may free."/>
+                            <ui:Button name="btnRetentionApply" text="Apply safe cleanup" class="dangerButton" tooltip="Apply only the cleanup set confirmed by the retention dry-run."/>
+                            <ui:Button name="btnRestoreCheckCurrent" text="Check current DB" tooltip="Inspect current local data for restore risks before choosing a backup."/>
+                            <ui:Button name="btnRestoreBrowse" text="Browse restore file" tooltip="Pick a local backup JSON file for restore dry-run."/>
+                            <ui:Button name="btnRestoreDryRun" text="Dry-run restore file" tooltip="Validate backup IDs, target references, duplicates, and rollback requirements before restore."/>
+                            <ui:Button name="btnRestoreApply" text="Apply restore" class="dangerButton rowEnd" tooltip="Replace local data only after dry-run evidence is acceptable."/>
+                        </ui:VisualElement>
+                        <ui:Label name="lblRetentionResult" text="" class="hint"/>
+                        <ui:Label name="lblRestoreResult" text="" class="hint"/>
+                    </ui:VisualElement>
                 </ui:ScrollView>
             </ui:VisualElement>
-            <ui:VisualElement name="viewLog" class="view">
-                <ui:Label text="Log" class="h1"/>
+
+            <ui:VisualElement name="viewLog" class="view" style="display: none;">
+                <ui:VisualElement class="viewHeader">
+                    <ui:VisualElement>
+                        <ui:Label text="Log" class="h1"/>
+                        <ui:Label text="Local diagnostics. Secrets should stay redacted." class="subtitle"/>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Label name="lblLogEmpty" text="No local diagnostics yet. Refresh after running checks, scheduling, or sending posts." class="emptyState compactEmpty"/>
                 <ui:ScrollView name="logScroll" class="log"/>
                 <ui:VisualElement class="row">
-                    <ui:Button name="btnLogClear" text="Clear log"/>
-                    <ui:Button name="btnLogRefresh" text="Refresh"/>
+                    <ui:Button name="btnLogClear" text="Clear log" class="dangerButton" tooltip="Clear the visible local log view. This does not send anything to Discord."/>
+                    <ui:Button name="btnLogRefresh" text="Refresh" class="rowEnd" tooltip="Reload local diagnostics from the app."/>
                 </ui:VisualElement>
             </ui:VisualElement>
         </ui:VisualElement>

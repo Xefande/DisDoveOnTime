@@ -35,6 +35,9 @@ namespace DiscordScheduler
 
         public string lastError;
         public int retries;
+        public string lastAttemptAtUtcIso;
+        public string nextAttemptAtUtcIso;
+        public string lastDiscordMessageId;
 
         public static ScheduledPost CreateNew(string targetId)
         {
@@ -57,7 +60,10 @@ namespace DiscordScheduler
                 createdAtUtcIso = TimeUtil.ToIsoUtc(nowUtc),
                 updatedAtUtcIso = TimeUtil.ToIsoUtc(nowUtc),
                 lastError = "",
-                retries = 0
+                retries = 0,
+                lastAttemptAtUtcIso = "",
+                nextAttemptAtUtcIso = "",
+                lastDiscordMessageId = ""
             };
         }
 

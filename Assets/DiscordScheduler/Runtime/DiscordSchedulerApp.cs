@@ -18,7 +18,35 @@ namespace DiscordScheduler
         private LogService _log;
         private StorageService _storage;
         private DiscordWebhookClient _webhook;
+        private WebhookUrlValidator _webhookUrlValidator;
+        private IWebhookSecretResolver _webhookSecretResolver;
         private SchedulerService _scheduler;
+        private SchedulePolicyService _schedulePolicy;
+        private ITimeProvider _timeProvider;
+        private PostStateMachine _postStateMachine;
+        private AppLifecycleService _lifecycle;
+        private SendQueueService _sendQueue;
+        private TargetRevisionPolicy _targetRevisionPolicy;
+        private MutationGuardService _mutationGuard;
+        private ReviewQueueService _reviewQueueService;
+        private PayloadTextNormalizer _payloadTextNormalizer;
+        private PayloadPreviewService _payloadPreviewService;
+        private PayloadPreviewPresenter _payloadPreviewPresenter;
+        private QueueHealthPresenter _queueHealthPresenter;
+        private RateLimitRegistry _rateLimitRegistry;
+        private OperationalHealthService _operationalHealth;
+        private PostFormValidator _postFormValidator;
+        private PostMediaService _postMediaService;
+        private PostApplicationService _postApp;
+        private TargetApplicationService _targetApp;
+        private SettingsApplicationService _settingsApp;
+        private ISendAttemptJournal _sendAttemptJournal;
+        private StorageLease _storageLease;
+        private bool _storageWriteBlocked;
+        private string _lastSaveWarning = "";
+        private string _lastJournalWarning = "";
+        private string _lastLockWarning = "";
+        private string _lastRetentionWarning = "";
 
         private AppDatabase _db;
 
@@ -26,14 +54,21 @@ namespace DiscordScheduler
         private VisualElement _root;
 
         private Label _lblStatus;
+        private Label _lblHealthState, _lblNavPending, _lblNavQueue, _lblNavReview;
+        private Label _lblMetricTargets, _lblMetricPending, _lblMetricQueue, _lblMetricReview, _lblMetricWarnings;
+        private Label _lblDashboardSummary, _lblQueueHealthSummary, _lblNextPost, _lblSafetySummary;
+        private Label _lblReviewSummary, _lblReviewEmpty;
+        private Label _lblReviewSelectedEvidence;
+        private ListView _reviewList;
+        private readonly List<ScheduledPost> _reviewPosts = new List<ScheduledPost>();
+        private Button _btnReviewOpenPosts, _btnReviewRetry, _btnReviewDismiss;
 
-        private VisualElement _viewTargets, _viewNew, _viewPosts, _viewSettings, _viewLog;
+        private Button _btnDashboard, _btnTargets, _btnNewPost, _btnPosts, _btnReview, _btnSettings, _btnLog;
 
-        private ListView _targetsList;
-        private TextField _tfTargetName, _tfTargetServer, _tfTargetChannel, _tfTargetWebhook, _tfTargetUsername, _tfTargetAvatar;
-        private Label _lblTargetHint;
+        private VisualElement _viewDashboard, _viewTargets, _viewNew, _viewPosts, _viewReview, _viewSettings, _viewLog;
 
         private DropdownField _ddPostTarget;
+        private readonly List<string> _postTargetIds = new List<string>();
         private TextField _tfPostTitle, _tfPostBody, _tfDate, _tfTime, _tfImagePath;
         private DropdownField _ddAttachmentPick;
         private Toggle _tgPostModeNormal, _tgPostModeEmbed;
@@ -41,7 +76,8 @@ namespace DiscordScheduler
         private TextField _tfMentionUserIds, _tfMentionRoleIds;
         private DropdownField _ddOffPolicy, _ddSleepPolicy;
         private Label _lblScheduleResult, _lblImageHint, _lblPostBodyCounter;
-        private Button _btnSchedule;
+        private Label _lblPayloadPreviewHeadline, _lblPayloadPreviewDigest, _lblPayloadPreviewDetails, _lblPayloadPreviewPayload;
+        private PayloadPreview _lastCreatePayloadPreview;
 
         private Toggle _tgAttachMedia;
         private VisualElement _mediaOptionsNew;
@@ -49,7 +85,6 @@ namespace DiscordScheduler
         private Toggle _tgMediaIsVideo;
         private TextField _tfMediaPath;
         private VisualElement _mediaButtonsNew;
-        private Button _btnMediaClear;
         private DropdownField _ddMediaPick;
         private Label _lblMediaHint;
         private Image _imgMediaPreview;
@@ -59,23 +94,25 @@ namespace DiscordScheduler
 
         private ListView _postsList;
         private DropdownField _ddEditTarget, _ddEditAttachmentPick;
+        private readonly List<string> _editTargetIds = new List<string>();
         private TextField _tfEditTitle, _tfEditBody, _tfEditDate, _tfEditTime, _tfEditImagePath;
         private Toggle _tgEditModeNormal, _tgEditModeEmbed;
         private Toggle _tgEditAllowUsers, _tgEditAllowRoles, _tgEditAllowEveryone;
         private TextField _tfEditMentionUserIds, _tfEditMentionRoleIds;
         private DropdownField _ddEditOffPolicy, _ddEditSleepPolicy;
+        private Label _lblPostsEmpty, _lblPostSelectionHint;
         private Label _lblEditStatus, _lblEditResult, _lblEditBodyCounter;
         private Image _imgEditPreview;
         private Texture2D _previewTexEdit;
         private Coroutine _previewVideoCoEdit;
 
-        private IntegerField _ifSleepThreshold;
-        private Toggle _tgDefaultAllowUsers, _tgDefaultAllowRoles, _tgDefaultAllowEveryone;
-        private TextField _tfDefaultUserIds, _tfDefaultRoleIds;
-        private DropdownField _ddDefaultOffPolicy, _ddDefaultSleepPolicy;
-        private Label _lblPaths, _lblSettingsResult;
-
-        private ScrollView _logScroll;
+        private SettingsPanelController _settingsPanel;
+        private LogPanelController _logPanel;
+        private TargetPanelController _targetPanel;
+        private PostCreatePanelController _postCreatePanel;
+        private PostEditPanelController _postEditPanel;
+        private DateTimePickerController _dateTimePicker;
+        private MediaPreviewController _mediaPreview;
 
         private VisualElement _modalOverlay;
         private VisualElement _modalCard;
@@ -83,9 +120,6 @@ namespace DiscordScheduler
         private VisualElement _modalBody;
         private Button _btnModalClose;
         private Action _modalOnClose;
-
-        private readonly Queue<string> _sendQueuePostIds = new Queue<string>();
-        private bool _isSending;
 
         private const int BodyMaxChars = 1980;
 
@@ -111,14 +145,97 @@ namespace DiscordScheduler
 #endif
 
             _log = new LogService();
+            _timeProvider = new SystemTimeProvider();
+            _postStateMachine = new PostStateMachine(_timeProvider);
+            _lifecycle = new AppLifecycleService(_postStateMachine);
+            _sendQueue = new SendQueueService(_postStateMachine);
+            _targetRevisionPolicy = new TargetRevisionPolicy();
+            _mutationGuard = new MutationGuardService(_sendQueue, _targetRevisionPolicy);
+            _payloadTextNormalizer = new PayloadTextNormalizer();
+            FileUtil.EnsureFolders();
+            _webhookSecretResolver = new WebhookSecretResolver(new DpapiSecretStore(Path.Combine(FileUtil.DataFolder, "secrets")));
+            _payloadPreviewService = new PayloadPreviewService(
+                textNormalizer: _payloadTextNormalizer,
+                targetRevisionPolicy: _targetRevisionPolicy,
+                webhookSecretResolver: _webhookSecretResolver);
+            _payloadPreviewPresenter = new PayloadPreviewPresenter();
+            _queueHealthPresenter = new QueueHealthPresenter();
+            _rateLimitRegistry = new RateLimitRegistry();
+            _operationalHealth = new OperationalHealthService();
+            _storageLease = new AppInstanceLock(_timeProvider).TryAcquire(FileUtil.DataFolder);
+            _storageWriteBlocked = _storageLease == null || !_storageLease.IsAcquired;
+            if (_storageWriteBlocked)
+            {
+                _lastLockWarning = _storageLease?.result?.message ?? "Storage lock failed.";
+                _log.Error(_lastLockWarning);
+            }
+            else if (_storageLease.result != null && _storageLease.result.staleRecovered)
+            {
+                _log.Warn("Recovered stale storage lock.");
+            }
+
             _storage = new StorageService(_log);
-            _db = _storage.LoadOrCreate();
+            _settingsApp = new SettingsApplicationService();
+            _settingsPanel = new SettingsPanelController(
+                _settingsApp,
+                () => _db,
+                SaveDb,
+                PolicyLabels,
+                BuildHealthSnapshot,
+                () => _log != null ? _log.Snapshot() : new List<string>());
+            _logPanel = new LogPanelController(_log);
+            _db = _storageWriteBlocked ? new AppDatabase() : _storage.LoadOrCreate();
             EnsureSettingsDefaults();
 
-            _webhook = new DiscordWebhookClient(_log);
+            _webhookUrlValidator = new WebhookUrlValidator();
+            _reviewQueueService = new ReviewQueueService(_webhookUrlValidator, _webhookSecretResolver);
+            _targetApp = new TargetApplicationService(_webhookUrlValidator, _sendQueue, _mutationGuard);
+            _webhook = new DiscordWebhookClient(_log, new DiscordWebhookHttpTransport(), new WebhookRequestFactory(), _webhookSecretResolver);
+            _targetPanel = new TargetPanelController(
+                _targetApp,
+                _webhookUrlValidator,
+                _webhookSecretResolver,
+                _webhook,
+                _log,
+                () => _db,
+                SaveDb,
+                RefreshTargetsDropdowns,
+                RefreshPostsList,
+                routine => StartCoroutine(routine));
             _scheduler = new SchedulerService(_db, _log);
+            _schedulePolicy = new SchedulePolicyService();
+            _postFormValidator = new PostFormValidator(new DiscordPayloadValidator(_payloadTextNormalizer));
+            _postMediaService = new PostMediaService();
+            _postApp = new PostApplicationService(_postFormValidator, _postMediaService, _timeProvider, _mutationGuard);
+            _dateTimePicker = new DateTimePickerController(
+                ShowDatePicker,
+                ShowTimePicker,
+                () => _modalOverlay != null && _modalOverlay.resolvedStyle.display != DisplayStyle.None);
+            _mediaPreview = new MediaPreviewController(
+                UpdateMediaPreviewNew,
+                UpdateMediaPreviewEdit,
+                CleanupAllPreviewResources);
+            _postCreatePanel = new PostCreatePanelController(
+                ScheduleNewPost,
+                RefreshAttachmentsDropdownNew,
+                _mediaPreview.UpdateNew,
+                () => OpenFolder(FileUtil.AttachmentsFolder),
+                TryPickFileWindows,
+                GetSelectedAttachmentPath);
+            _postEditPanel = new PostEditPanelController(
+                SaveEditedPost,
+                DeleteSelectedPost,
+                ForceSendSelectedPost,
+                DeleteSentPosts,
+                MarkSelectedPostPending,
+                () => OpenFolder(FileUtil.AttachmentsFolder),
+                RefreshAttachmentsDropdownEdit,
+                _mediaPreview.UpdateEdit,
+                GetSelectedAttachmentPath);
 
-            FileUtil.EnsureFolders();
+            _sendAttemptJournal = new SendAttemptJournal(FileUtil.DataFolder);
+
+            RecoverStaleSendingPosts();
 
             _log.Info("App Awake.");
             _lastHeartbeatRealtime = Time.realtimeSinceStartup;
@@ -143,11 +260,22 @@ namespace DiscordScheduler
 
         private void OnDisable()
         {
-            CleanupPreviewResources(ref _previewTexNew, ref _previewVideoCoNew);
-            CleanupPreviewResources(ref _previewTexEdit, ref _previewVideoCoEdit);
+            _mediaPreview?.Cleanup();
         }
 
         private void OnDestroy()
+        {
+            _mediaPreview?.Cleanup();
+            _storageLease?.Dispose();
+        }
+
+        private void OnApplicationQuit()
+        {
+            MarkActiveSendAmbiguousOnShutdown();
+            _storageLease?.Dispose();
+        }
+
+        private void CleanupAllPreviewResources()
         {
             CleanupPreviewResources(ref _previewTexNew, ref _previewVideoCoNew);
             CleanupPreviewResources(ref _previewTexEdit, ref _previewVideoCoEdit);
@@ -170,28 +298,38 @@ namespace DiscordScheduler
 
         private void EnsureSettingsDefaults()
         {
-            // default both missed policies to "SendOnNextRun" (index 0) if unset or invalid
-            if (_db.settings == null) return;
+            _settingsApp?.Normalize(_db);
+        }
 
-            if ((int)_db.settings.defaultOffPolicy < 0 || (int)_db.settings.defaultOffPolicy > 2)
-                _db.settings.defaultOffPolicy = MissedPolicy.SendOnNextRun;
+        private void RecoverStaleSendingPosts()
+        {
+            if (_db?.posts == null || _lifecycle == null)
+                return;
 
-            if ((int)_db.settings.defaultSleepPolicy < 0 || (int)_db.settings.defaultSleepPolicy > 2)
-                _db.settings.defaultSleepPolicy = MissedPolicy.SendOnNextRun;
+            int recovered = _lifecycle.RecoverStaleSendingPosts(_db, "Recovered stale Sending state on startup; manual review required.");
+
+            if (recovered <= 0)
+                return;
+
+            _log.Warn($"Recovered {recovered} stale Sending post(s) to NeedsReview.");
+            SaveDb();
         }
 
         private void Start()
         {
-            BindUI();
+            if (!BindUI())
+                return;
+
             RefreshAllUI();
 
             // startup missed handling (off/app not running)
-            _scheduler.OnStartupHandleMissed((p, isOffMissed, isSleepMissed) =>
-            {
-                ApplyMissedPolicyAndMaybeEnqueue(p, isOffMissed, isSleepMissed);
-            });
+            _scheduler.OnStartupHandleMissed(HandleDuePost);
 
-            SaveDb();
+            if (!_storageWriteBlocked)
+                SaveDb();
+            else if (_lblStatus != null)
+                _lblStatus.text = "Storage locked by another app instance. Writes and sends are blocked.";
+
             RefreshPostsList();
         }
 
@@ -205,21 +343,31 @@ namespace DiscordScheduler
                 _lastHeartbeatLogRealtime = Time.realtimeSinceStartup;
             }
 
-            _scheduler.Tick((p, isOffMissed, isSleepMissed) =>
-            {
-                ApplyMissedPolicyAndMaybeEnqueue(p, isOffMissed, isSleepMissed);
-            });
+            if (_storageWriteBlocked)
+                return;
 
-            if (!_isSending && _sendQueuePostIds.Count > 0)
+            _scheduler.Tick(HandleDuePost);
+
+            if (_sendQueue.TryDequeueNext(_db, out var queuedPost))
             {
-                var id = _sendQueuePostIds.Dequeue();
-                var post = _db.posts.FirstOrDefault(x => x.id == id);
-                if (post != null)
-                    StartCoroutine(SendPostCoroutine(post));
+                var canStart = _lifecycle.CanStartSend();
+                if (!canStart.ok)
+                {
+                    _postStateMachine.RecoverStaleSending(queuedPost, canStart.error);
+                    SaveDb();
+                    RefreshPostsList();
+                    return;
+                }
+
+                if (!TryApplyRateLimitGuard(queuedPost))
+                    return;
+
+                _sendQueue.MarkActive(queuedPost.id);
+                StartCoroutine(SendPostCoroutine(queuedPost));
             }
         }
 
-        private void BindUI()
+        private bool BindUI()
         {
 
 #if UNITY_2023_2_OR_NEWER
@@ -232,55 +380,56 @@ namespace DiscordScheduler
             {
                 Debug.LogError("Can't find any UIDocument in scene");
                 enabled = false;
-                return;
+                return false;
             }
 
             _root = _ui.rootVisualElement;
+            if (!AuditRequiredUiBindings())
+            {
+                enabled = false;
+                return false;
+            }
 
             // navigation
-            _root.Q<Button>("btnTargets").clicked += () => ShowView(_viewTargets);
-            _root.Q<Button>("btnNewPost").clicked += () =>
-            {
-                ShowView(_viewNew);
-                RefreshAttachmentsDropdownNew();
-                UpdateMediaPreviewNew();
-            };
-            _root.Q<Button>("btnPosts").clicked += () =>
-            {
-                ShowView(_viewPosts);
-                RefreshPostsList();
-                RefreshAttachmentsDropdownEdit();
-                LoadSelectedPostIntoEditor();
-            };
-            _root.Q<Button>("btnSettings").clicked += () =>
-            {
-                ShowView(_viewSettings);
-                LoadSettingsIntoUI();
-            };
-            _root.Q<Button>("btnLog").clicked += () => { ShowView(_viewLog); RefreshLog(); };
+            _btnDashboard = _root.Q<Button>("btnDashboard");
+            _btnTargets = _root.Q<Button>("btnTargets");
+            _btnNewPost = _root.Q<Button>("btnNewPost");
+            _btnPosts = _root.Q<Button>("btnPosts");
+            _btnReview = _root.Q<Button>("btnReview");
+            _btnSettings = _root.Q<Button>("btnSettings");
+            _btnLog = _root.Q<Button>("btnLog");
+
             _lblStatus = _root.Q<Label>("lblStatus");
+            _lblHealthState = _root.Q<Label>("lblHealthState");
+            _lblNavPending = _root.Q<Label>("lblNavPending");
+            _lblNavQueue = _root.Q<Label>("lblNavQueue");
+            _lblNavReview = _root.Q<Label>("lblNavReview");
+
+            _lblMetricTargets = _root.Q<Label>("lblMetricTargets");
+            _lblMetricPending = _root.Q<Label>("lblMetricPending");
+            _lblMetricQueue = _root.Q<Label>("lblMetricQueue");
+            _lblMetricReview = _root.Q<Label>("lblMetricReview");
+            _lblMetricWarnings = _root.Q<Label>("lblMetricWarnings");
+            _lblDashboardSummary = _root.Q<Label>("lblDashboardSummary");
+            _lblQueueHealthSummary = _root.Q<Label>("lblQueueHealthSummary");
+            _lblNextPost = _root.Q<Label>("lblNextPost");
+            _lblSafetySummary = _root.Q<Label>("lblSafetySummary");
+            _lblReviewSummary = _root.Q<Label>("lblReviewSummary");
+            _lblReviewEmpty = _root.Q<Label>("lblReviewEmpty");
+            _lblReviewSelectedEvidence = _root.Q<Label>("lblReviewSelectedEvidence");
 
             // views
+            _viewDashboard = _root.Q<VisualElement>("viewDashboard");
             _viewTargets = _root.Q<VisualElement>("viewTargets");
             _viewNew = _root.Q<VisualElement>("viewNewPost");
             _viewPosts = _root.Q<VisualElement>("viewPosts");
+            _viewReview = _root.Q<VisualElement>("viewReview");
             _viewSettings = _root.Q<VisualElement>("viewSettings");
             _viewLog = _root.Q<VisualElement>("viewLog");
 
-            // targets refs
-            _targetsList = _root.Q<ListView>("targetsList");
-            _tfTargetName = _root.Q<TextField>("tfTargetName");
-            _tfTargetServer = _root.Q<TextField>("tfTargetServer");
-            _tfTargetChannel = _root.Q<TextField>("tfTargetChannel");
-            _tfTargetWebhook = _root.Q<TextField>("tfTargetWebhook");
-            _tfTargetUsername = _root.Q<TextField>("tfTargetUsername");
-            _tfTargetAvatar = _root.Q<TextField>("tfTargetAvatar");
-            _lblTargetHint = _root.Q<Label>("lblTargetHint");
+            BindNavigation();
 
-            _root.Q<Button>("btnTargetAdd").clicked += AddTarget;
-            _root.Q<Button>("btnTargetSave").clicked += SaveTargetFromFields;
-            _root.Q<Button>("btnTargetDelete").clicked += DeleteSelectedTarget;
-            _root.Q<Button>("btnTargetTest").clicked += TestSelectedTarget;
+            _targetPanel.Bind(_root);
 
             // new post refs
             _ddPostTarget = _root.Q<DropdownField>("ddPostTarget");
@@ -290,8 +439,8 @@ namespace DiscordScheduler
             _tfTime = _root.Q<TextField>("tfTime");
 
             // pickers instead of manual typing
-            SetReadOnlyPickerField(_tfDate, PickerKind.Date);
-            SetReadOnlyPickerField(_tfTime, PickerKind.Time);
+            _dateTimePicker.BindDateField(_tfDate);
+            _dateTimePicker.BindTimeField(_tfTime);
 
             _tfImagePath = _root.Q<TextField>("tfImagePath");
             _ddAttachmentPick = _root.Q<DropdownField>("ddAttachmentPick");
@@ -310,7 +459,10 @@ namespace DiscordScheduler
             _lblScheduleResult = _root.Q<Label>("lblScheduleResult");
             _lblImageHint = _root.Q<Label>("lblImageHint");
             _lblPostBodyCounter = _root.Q<Label>("lblPostBodyCounter");
-            _root.Q<Button>("btnSchedule").clicked += ScheduleNewPost;
+            _lblPayloadPreviewHeadline = _root.Q<Label>("lblPayloadPreviewHeadline");
+            _lblPayloadPreviewDigest = _root.Q<Label>("lblPayloadPreviewDigest");
+            _lblPayloadPreviewDetails = _root.Q<Label>("lblPayloadPreviewDetails");
+            _lblPayloadPreviewPayload = _root.Q<Label>("lblPayloadPreviewPayload");
 
             // media (new post)
             _tgAttachMedia = _root.Q<Toggle>("tgAttachMedia");
@@ -319,106 +471,24 @@ namespace DiscordScheduler
             _tgMediaIsVideo = _root.Q<Toggle>("tgMediaIsVideo");
             _tfMediaPath = _root.Q<TextField>("tfMediaPath");
             _mediaButtonsNew = _root.Q<VisualElement>("mediaButtonsNew");
-            _btnMediaClear = _root.Q<Button>("btnMediaClear");
             _ddMediaPick = _root.Q<DropdownField>("ddMediaPick");
             _lblMediaHint = _root.Q<Label>("lblMediaHint");
             _imgMediaPreview = _root.Q<Image>("imgMediaPreview");
             _mediaPreviewNew = _root.Q<VisualElement>("mediaPreviewNew");
 
-            // hide image/video radio, autodetection is great
-            if (_mediaOptionsNew != null) _mediaOptionsNew.style.display = DisplayStyle.None;
-            if (_tgMediaIsImage != null) _tgMediaIsImage.style.display = DisplayStyle.None;
-            if (_tgMediaIsVideo != null) _tgMediaIsVideo.style.display = DisplayStyle.None;
-
-            void SetMediaUiVisible(bool visible)
-            {
-                var ds = visible ? DisplayStyle.Flex : DisplayStyle.None;
-
-                if (_mediaOptionsNew != null) _mediaOptionsNew.style.display = DisplayStyle.None; // stay hide
-                if (_tfMediaPath != null) _tfMediaPath.style.display = ds;
-                if (_mediaButtonsNew != null) _mediaButtonsNew.style.display = ds;
-                if (_ddMediaPick != null) _ddMediaPick.style.display = ds;
-                if (_lblMediaHint != null) _lblMediaHint.style.display = ds;
-                if (_mediaPreviewNew != null) _mediaPreviewNew.style.display = ds;
-            }
-
-            if (_tgAttachMedia != null)
-            {
-                SetMediaUiVisible(_tgAttachMedia.value);
-                _tgAttachMedia.RegisterValueChangedCallback(evt =>
-                {
-                    SetMediaUiVisible(evt.newValue);
-
-                    if (!evt.newValue)
-                    {
-                        if (_tfMediaPath != null) _tfMediaPath.value = "";
-                        if (_ddMediaPick != null) _ddMediaPick.index = -1;
-                        UpdateMediaPreviewNew();
-                    }
-                    else
-                    {
-                        RefreshAttachmentsDropdownNew();
-                    }
-                });
-            }
-
-            if (_btnMediaClear != null)
-            {
-                _btnMediaClear.clicked += () =>
-                {
-                    if (_tfMediaPath != null) _tfMediaPath.value = "";
-                    if (_ddMediaPick != null) _ddMediaPick.index = -1;
-                };
-            }
-
-            if (_ddMediaPick != null)
-            {
-                _ddMediaPick.RegisterValueChangedCallback(_ =>
-                {
-                    var path = GetSelectedAttachmentPath(_ddMediaPick);
-                    if (!string.IsNullOrEmpty(path) && _tfMediaPath != null)
-                        _tfMediaPath.value = path;
-                    UpdateMediaPreviewNew();
-                });
-            }
-
-            // media folder/refresh buttons (new post)
-            var btnMediaOpenAttachments = _root.Q<Button>("btnMediaOpenAttachments");
-            if (btnMediaOpenAttachments != null)
-                btnMediaOpenAttachments.clicked += () => OpenFolder(FileUtil.AttachmentsFolder);
-
-            var btnMediaRefresh = _root.Q<Button>("btnMediaRefresh");
-            if (btnMediaRefresh != null)
-                btnMediaRefresh.clicked += () =>
-                {
-                    RefreshAttachmentsDropdownNew();
-                    UpdateMediaPreviewNew();
-                };
-
-            var btnMediaBrowse = _root.Q<Button>("btnMediaBrowse");
-            if (btnMediaBrowse != null)
-            {
-                btnMediaBrowse.clicked += () =>
-                {
-                    // both types are allowed, decide based on the file extension
-                    var filter = "Images/Videos (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.mp4;*.webm;*.mov)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.mp4;*.webm;*.mov|All files (*.*)|*.*";
-                    var picked = TryPickFileWindows(filter);
-                    if (!string.IsNullOrEmpty(picked) && _tfMediaPath != null)
-                        _tfMediaPath.value = picked;
-                    UpdateMediaPreviewNew();
-                };
-            }
-
+            _postCreatePanel.Bind(_root);
 
             // posts refs
             _postsList = _root.Q<ListView>("postsList");
+            _lblPostsEmpty = _root.Q<Label>("lblPostsEmpty");
+            _lblPostSelectionHint = _root.Q<Label>("lblPostSelectionHint");
             _ddEditTarget = _root.Q<DropdownField>("ddEditTarget");
             _tfEditTitle = _root.Q<TextField>("tfEditTitle");
             _tfEditBody = _root.Q<TextField>("tfEditBody");
             _tfEditDate = _root.Q<TextField>("tfEditDate");
             _tfEditTime = _root.Q<TextField>("tfEditTime");
-            SetReadOnlyPickerField(_tfEditDate, PickerKind.Date);
-            SetReadOnlyPickerField(_tfEditTime, PickerKind.Time);
+            _dateTimePicker.BindDateField(_tfEditDate);
+            _dateTimePicker.BindTimeField(_tfEditTime);
 
             _tfEditImagePath = _root.Q<TextField>("tfEditImagePath");
             _ddEditAttachmentPick = _root.Q<DropdownField>("ddEditAttachmentPick");
@@ -439,51 +509,15 @@ namespace DiscordScheduler
             _lblEditResult = _root.Q<Label>("lblEditResult");
             _lblEditBodyCounter = _root.Q<Label>("lblEditBodyCounter");
 
-            _root.Q<Button>("btnPostSave").clicked += SaveEditedPost;
-            _root.Q<Button>("btnPostDelete").clicked += DeleteSelectedPost;
-            _root.Q<Button>("btnPostForceSend").clicked += ForceSendSelectedPost;
-            _root.Q<Button>("btnPostDeleteSent").clicked += DeleteSentPosts;
-            _root.Q<Button>("btnPostMarkPending").clicked += MarkSelectedPostPending;
-            _root.Q<Button>("btnEditImageClear").clicked += () => { _tfEditImagePath.value = ""; _ddEditAttachmentPick.index = -1; };
-            _root.Q<Button>("btnOpenAttachments2").clicked += () => OpenFolder(FileUtil.AttachmentsFolder);
-            _root.Q<Button>("btnEditRefreshAttachments").clicked += RefreshAttachmentsDropdownEdit;
-
-            _root.Q<Button>("btnPostSave").clicked += SaveEditedPost;
-            BindOpenFolderButtons("btnOpenAttachments2", FileUtil.AttachmentsFolder);
-            BindOpenFolderButtons("btnOpenDataFolder", FileUtil.DataFolder);
-
-
-
-            _ddEditAttachmentPick.RegisterValueChangedCallback(_ =>
-            {
-                var path = GetSelectedAttachmentPath(_ddEditAttachmentPick);
-                if (!string.IsNullOrEmpty(path))
-                    _tfEditImagePath.value = path;
-                UpdateMediaPreviewEdit();
-            });
-
-            // settings refs
-            _ifSleepThreshold = _root.Q<IntegerField>("ifSleepThreshold");
-            _tgDefaultAllowUsers = _root.Q<Toggle>("tgDefaultAllowUsers");
-            _tgDefaultAllowRoles = _root.Q<Toggle>("tgDefaultAllowRoles");
-            _tgDefaultAllowEveryone = _root.Q<Toggle>("tgDefaultAllowEveryone");
-            _tfDefaultUserIds = _root.Q<TextField>("tfDefaultUserIds");
-            _tfDefaultRoleIds = _root.Q<TextField>("tfDefaultRoleIds");
-            _ddDefaultOffPolicy = _root.Q<DropdownField>("ddDefaultOffPolicy");
-            _ddDefaultSleepPolicy = _root.Q<DropdownField>("ddDefaultSleepPolicy");
-            _lblPaths = _root.Q<Label>("lblPaths");
-            _lblSettingsResult = _root.Q<Label>("lblSettingsResult");
-
-            _root.Q<Button>("btnSaveSettings").clicked += SaveSettingsFromUI;
+            _postEditPanel.Bind(_root);
             _root.Q<Button>("btnOpenDataFolder").clicked += () => OpenFolder(FileUtil.DataFolder);
 
-            // log refs
-            _logScroll = _root.Q<ScrollView>("logScroll");
-            _root.Q<Button>("btnLogClear").clicked += () => { _log.Clear(); RefreshLog(); };
-            _root.Q<Button>("btnLogRefresh").clicked += RefreshLog;
+            _settingsPanel.Bind(_root);
+            _logPanel.Bind(_root);
 
             SetupListViews();
             SetupDropdowns();
+            BindCreatePayloadPreview();
 
             // body fields: hide labels, enforce limit, counters
             HideLabelAndExpandInput(_tfPostBody);
@@ -499,7 +533,130 @@ namespace DiscordScheduler
             // date/time picker modals
             EnsureModalUi();
 
-            ShowView(_viewTargets);
+            ShowView(_viewDashboard);
+            RenderCreatePayloadPreview(null);
+            return true;
+        }
+
+        private void BindNavigation()
+        {
+            if (_btnDashboard != null)
+                _btnDashboard.clicked += () => ShowView(_viewDashboard);
+
+            if (_btnTargets != null)
+                _btnTargets.clicked += () => ShowView(_viewTargets);
+
+            if (_btnNewPost != null)
+            {
+                _btnNewPost.clicked += () =>
+                {
+                    ShowView(_viewNew);
+                    RefreshAttachmentsDropdownNew();
+                    _mediaPreview.UpdateNew();
+                };
+            }
+
+            if (_btnPosts != null)
+            {
+                _btnPosts.clicked += () =>
+                {
+                    ShowView(_viewPosts);
+                    RefreshPostsList();
+                    RefreshAttachmentsDropdownEdit();
+                    LoadSelectedPostIntoEditor();
+                };
+            }
+
+            if (_btnReview != null)
+            {
+                _btnReview.clicked += () =>
+                {
+                    RefreshReviewList();
+                    ShowView(_viewReview);
+                };
+            }
+
+            if (_btnSettings != null)
+            {
+                _btnSettings.clicked += () =>
+                {
+                    ShowView(_viewSettings);
+                    _settingsPanel.Refresh();
+                };
+            }
+
+            if (_btnLog != null)
+                _btnLog.clicked += () => { ShowView(_viewLog); _logPanel.Refresh(); };
+
+            var btnDashboardNewPost = _root.Q<Button>("btnDashboardNewPost");
+            if (btnDashboardNewPost != null)
+                btnDashboardNewPost.clicked += () =>
+                {
+                    ShowView(_viewNew);
+                    RefreshAttachmentsDropdownNew();
+                    _mediaPreview.UpdateNew();
+                    UpdateCreatePayloadPreviewStaleState();
+                };
+
+            var btnDashboardTargets = _root.Q<Button>("btnDashboardTargets");
+            if (btnDashboardTargets != null)
+                btnDashboardTargets.clicked += () => ShowView(_viewTargets);
+
+            var btnDashboardReview = _root.Q<Button>("btnDashboardReview");
+            if (btnDashboardReview != null)
+                btnDashboardReview.clicked += () =>
+                {
+                    RefreshReviewList();
+                    ShowView(_viewReview);
+                };
+
+            var btnReviewRefresh = _root.Q<Button>("btnReviewRefresh");
+            if (btnReviewRefresh != null)
+                btnReviewRefresh.clicked += RefreshReviewList;
+
+            _btnReviewOpenPosts = _root.Q<Button>("btnReviewOpenPosts");
+            if (_btnReviewOpenPosts != null)
+                _btnReviewOpenPosts.clicked += OpenSelectedReviewPostInPosts;
+
+            _btnReviewRetry = _root.Q<Button>("btnReviewRetry");
+            if (_btnReviewRetry != null)
+                _btnReviewRetry.clicked += RetrySelectedReviewPost;
+
+            _btnReviewDismiss = _root.Q<Button>("btnReviewDismiss");
+            if (_btnReviewDismiss != null)
+                _btnReviewDismiss.clicked += DismissSelectedReviewPost;
+
+            SetReviewActionButtonsEnabled(false);
+        }
+
+        private bool AuditRequiredUiBindings()
+        {
+            if (_root == null)
+                return false;
+
+            var report = new UiBindingAudit().Run(_root);
+            if (report.ok)
+            {
+                var warnings = report.WarningSummaries();
+                for (int i = 0; i < warnings.Count; i++)
+                    _log?.Warn("UI binding audit warning: " + warnings[i]);
+
+                return true;
+            }
+
+            var message = "UI binding audit failed. Required UXML control issue(s): " + string.Join(", ", report.BlockingSummaries());
+            Debug.LogError(message);
+            _log?.Error(message);
+            return false;
+        }
+
+        private T RequireUi<T>(string name, List<string> missing) where T : VisualElement
+        {
+            var element = _root.Q<T>(name);
+            if (element == null)
+                missing.Add($"{typeof(T).Name}:{name}");
+
+            return element;
         }
 
         private void SetupDropdowns()
@@ -508,56 +665,6 @@ namespace DiscordScheduler
             _ddSleepPolicy.choices = PolicyLabels;
             _ddEditOffPolicy.choices = PolicyLabels;
             _ddEditSleepPolicy.choices = PolicyLabels;
-
-            _ddDefaultOffPolicy.choices = PolicyLabels;
-            _ddDefaultSleepPolicy.choices = PolicyLabels;
-        }
-
-        private enum PickerKind { Date, Time }
-
-        private void SetReadOnlyPickerField(TextField field, PickerKind kind)
-        {
-            if (field == null) return;
-
-            field.isReadOnly = true;
-
-            // ensure wrapper receives picking too (helps in some versions)
-            field.pickingMode = PickingMode.Position;
-
-            void OpenPicker()
-            {
-                if (kind == PickerKind.Date)
-                    ShowDatePicker(field);
-                else
-                    ShowTimePicker(field);
-            }
-
-            void OnPointerDown(PointerDownEvent pointerDownEvent)
-            {
-                if (pointerDownEvent.button != 0) return;
-
-                // prevent double-open if something triggers twice
-                if (_modalOverlay != null && _modalOverlay.resolvedStyle.display != DisplayStyle.None)
-                    return;
-
-                OpenPicker();
-                pointerDownEvent.StopPropagation();
-            }
-
-            // register on the field (capture helps when event originates from child)
-            field.RegisterCallback<PointerDownEvent>(OnPointerDown, TrickleDown.TrickleDown);
-
-            VisualElement input =
-                field.Q(className: "unity-text-field__input") ??
-                field.Q(className: "unity-base-text-field__input") ??
-                field.Q(className: "unity-text-field__input-field") ??
-                field.Q(className: "unity-base-text-field__input-field");
-
-            if (input != null)
-            {
-                input.pickingMode = PickingMode.Position;
-                input.RegisterCallback<PointerDownEvent>(OnPointerDown, TrickleDown.TrickleDown);
-            }
         }
 
         private void HideAllowedMentionsUI()
@@ -575,9 +682,9 @@ namespace DiscordScheduler
                 "tfDefaultUserIds","tfDefaultRoleIds",
             };
 
-            foreach (var n in hideNames)
+            foreach (var controlName in hideNames)
             {
-                var visualElement = _root?.Q<VisualElement>(n);
+                var visualElement = _root?.Q<VisualElement>(controlName);
                 if (visualElement != null)
                     visualElement.style.display = DisplayStyle.None;
             }
@@ -685,7 +792,7 @@ namespace DiscordScheduler
             _modalOverlay.style.display = DisplayStyle.None;
 
             try { _modalOnClose?.Invoke(); }
-            catch (Exception e) { Debug.LogWarning("Modal onClose error: " + e.Message); }
+            catch (Exception exception) { Debug.LogWarning("Modal onClose error: " + exception.Message); }
 
             _modalOnClose = null;
             _modalBody?.Clear();
@@ -747,18 +854,18 @@ namespace DiscordScheduler
                 grid.Clear();
 
                 int daysInMonth = DateTime.DaysInMonth(shown.Year, shown.Month);
-                for (int d = 1; d <= daysInMonth; d++)
+                for (int dayOfMonth = 1; dayOfMonth <= daysInMonth; dayOfMonth++)
                 {
-                    var date = new DateTime(shown.Year, shown.Month, d);
+                    var date = new DateTime(shown.Year, shown.Month, dayOfMonth);
 
-                    var b = new Button(() => onSelected?.Invoke(date)) { text = d.ToString() };
-                    b.style.width = cellW;
-                    b.style.height = cellH;
+                    var dayButton = new Button(() => onSelected?.Invoke(date)) { text = dayOfMonth.ToString() };
+                    dayButton.style.width = cellW;
+                    dayButton.style.height = cellH;
 
                     if (date.Date == current.Date)
-                        b.style.backgroundColor = new Color(0.20f, 0.40f, 0.85f, 1f);
+                        dayButton.style.backgroundColor = new Color(0.20f, 0.40f, 0.85f, 1f);
 
-                    grid.Add(b);
+                    grid.Add(dayButton);
                 }
             }
 
@@ -795,8 +902,8 @@ namespace DiscordScheduler
             int hour = 12;
             int minute = 0;
 
-            var v = (targetField?.value ?? "").Trim();
-            if (DateTime.TryParseExact(v, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+            var timeText = (targetField?.value ?? "").Trim();
+            if (DateTime.TryParseExact(timeText, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.None, out var parsed))
             {
                 hour = parsed.Hour;
@@ -844,21 +951,21 @@ namespace DiscordScheduler
             void RebuildHours()
             {
                 hoursGrid.Clear();
-                for (int h = 0; h <= 23; h++)
+                for (int hourIndex = 0; hourIndex <= 23; hourIndex++)
                 {
-                    int hh = h;
+                    int hourValue = hourIndex;
                     var b = new Button(() =>
                     {
-                        selHour = hh;
+                        selHour = hourValue;
                         preview.text = $"{selHour:00}:{selMin:00}";
                         RebuildHours();
                     })
-                    { text = h.ToString("00") };
+                    { text = hourValue.ToString("00") };
 
                     b.style.width = 64;
                     b.style.height = 30;
 
-                    if (hh == selHour)
+                    if (hourValue == selHour)
                         b.style.backgroundColor = new Color(0.20f, 0.40f, 0.85f, 1f);
 
                     hoursGrid.Add(b);
@@ -884,24 +991,24 @@ namespace DiscordScheduler
             void RebuildMinutes()
             {
                 minsQuick.Clear();
-                for (int m = 0; m <= 55; m += 5)
+                for (int minuteIndex = 0; minuteIndex <= 55; minuteIndex += 5)
                 {
-                    int mm = m;
-                    var b = new Button(() =>
+                    int minuteValue = minuteIndex;
+                    var minuteButton = new Button(() =>
                     {
-                        selMin = mm;
+                        selMin = minuteValue;
                         preview.text = $"{selHour:00}:{selMin:00}";
                         RebuildMinutes();
                     })
-                    { text = m.ToString("00") };
+                    { text = minuteValue.ToString("00") };
 
-                    b.style.width = 52;
-                    b.style.height = 30;
+                    minuteButton.style.width = 52;
+                    minuteButton.style.height = 30;
 
-                    if (mm == selMin && (selMin % 5 == 0))
-                        b.style.backgroundColor = new Color(0.20f, 0.40f, 0.85f, 1f);
+                    if (minuteValue == selMin && (selMin % 5 == 0))
+                        minuteButton.style.backgroundColor = new Color(0.20f, 0.40f, 0.85f, 1f);
 
-                    minsQuick.Add(b);
+                    minsQuick.Add(minuteButton);
                 }
             }
 
@@ -945,33 +1052,74 @@ namespace DiscordScheduler
 
         private void SetupListViews()
         {
-            // targets listview
-            _targetsList.makeItem = () => new Label();
-            _targetsList.bindItem = (e, i) =>
-            {
-                var lbl = e as Label;
-                if (lbl == null) return;
-                if (i < 0 || i >= _db.targets.Count) return;
-                var t = _db.targets[i];
-                lbl.text = $"{t.name}  —  {t.serverLabel} / {t.channelLabel}";
-            };
-            _targetsList.selectionType = SelectionType.Single;
-            _targetsList.selectionChanged += _ => LoadSelectedTargetIntoFields();
-
             // posts listview
-            _postsList.makeItem = () => new Label();
+            _postsList.makeItem = CreatePostRow;
             _postsList.bindItem = (e, i) =>
             {
-                var lbl = e as Label;
-                if (lbl == null) return;
-                if (i < 0 || i >= _db.posts.Count) return;
-                var p = _db.posts[i];
-                var local = TimeUtil.ParseIsoUtc(p.scheduledAtUtcIso);
-                var (dateYmd, timeHm) = TimeUtil.UtcToBudapestFields(local);
-                lbl.text = $"{dateYmd} {timeHm}  –  {p.status}  –  {p.title}";
+                if (i < 0 || _db?.posts == null || i >= _db.posts.Count) return;
+                BindPostRow(e, _db.posts[i]);
             };
             _postsList.selectionType = SelectionType.Single;
             _postsList.selectionChanged += _ => LoadSelectedPostIntoEditor();
+
+            _reviewList = _root.Q<ListView>("reviewList");
+            if (_reviewList != null)
+            {
+                _reviewList.makeItem = CreatePostRow;
+                _reviewList.bindItem = (e, i) =>
+                {
+                    if (i < 0 || i >= _reviewPosts.Count) return;
+                    BindPostRow(e, _reviewPosts[i]);
+                };
+                _reviewList.selectionType = SelectionType.Single;
+                _reviewList.selectionChanged += _ => RefreshReviewSelectionDetails();
+            }
+        }
+
+        private static VisualElement CreatePostRow()
+        {
+            var row = new VisualElement();
+            row.AddToClassList("postRow");
+
+            var status = new Label { name = "rowStatus", text = "Status" };
+            status.AddToClassList("statusPill");
+            row.Add(status);
+
+            var textStack = new VisualElement { name = "rowText" };
+            textStack.AddToClassList("postRowText");
+
+            var title = new Label { name = "rowTitle", text = "Post" };
+            title.AddToClassList("postRowTitle");
+            textStack.Add(title);
+
+            var meta = new Label { name = "rowMeta", text = "" };
+            meta.AddToClassList("postRowMeta");
+            textStack.Add(meta);
+
+            row.Add(textStack);
+            return row;
+        }
+
+        private void BindPostRow(VisualElement row, ScheduledPost post)
+        {
+            if (row == null || post == null)
+                return;
+
+            var status = row.Q<Label>("rowStatus");
+            var title = row.Q<Label>("rowTitle");
+            var meta = row.Q<Label>("rowMeta");
+
+            if (status != null)
+            {
+                status.text = post.status.ToString();
+                ApplyPostStatusClass(status, post.status);
+            }
+
+            if (title != null)
+                title.text = BuildPostTitle(post);
+
+            if (meta != null)
+                meta.text = BuildPostMeta(post);
         }
 
         private void RefreshAllUI()
@@ -981,7 +1129,7 @@ namespace DiscordScheduler
             RefreshPostsList();
             RefreshAttachmentsDropdownNew();
             RefreshAttachmentsDropdownEdit();
-            LoadSettingsIntoUI();
+            _settingsPanel.Refresh();
             RefreshBodyCounter(_tfPostBody, _lblPostBodyCounter);
             RefreshBodyCounter(_tfEditBody, _lblEditBodyCounter);
             SetRadio(_tgPostModeNormal, _tgPostModeEmbed, false); // default: Normal
@@ -1006,154 +1154,611 @@ namespace DiscordScheduler
             // Date/Time picker modals
             EnsureModalUi();
 
-            ShowView(_viewTargets);
+            ShowView(_viewDashboard);
         }
 
         private void RefreshTargetsList()
         {
-            _targetsList.itemsSource = _db.targets;
-            _targetsList.Rebuild();
+            _targetPanel.RefreshList();
         }
 
         private void RefreshPostsList()
         {
+            var selectedId = (_postsList?.selectedItem as ScheduledPost)?.id ?? "";
             SortPostsByDate(); // ensure list is date-ordered
+            var hasPosts = _db?.posts != null && _db.posts.Count > 0;
             _postsList.itemsSource = _db.posts;
             _postsList.Rebuild();
+            _postsList.style.display = hasPosts ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_lblPostsEmpty != null)
+                _lblPostsEmpty.style.display = hasPosts ? DisplayStyle.None : DisplayStyle.Flex;
+            if (!hasPosts)
+                SetPostEditActionButtonsEnabled(false);
+            RestoreSelectedPost(selectedId);
+            if (hasPosts && _postsList != null && _postsList.selectedIndex < 0)
+                _postsList.selectedIndex = 0;
+            RefreshReviewList();
+            RefreshHealthUi();
+        }
 
-            // LINQ: count pending posts for status label
-            _lblStatus.text = $"Targets: {_db.targets.Count} | Posts: {_db.posts.Count} | Pending: {_db.posts.Count(post => post.status == PostStatus.Pending)}";
+        private void RestoreSelectedPost(string postId)
+        {
+            if (_postsList == null || string.IsNullOrWhiteSpace(postId) || _db?.posts == null)
+                return;
+
+            var index = _db.posts.FindIndex(post => post != null && post.id == postId);
+            if (index >= 0)
+                _postsList.selectedIndex = index;
+        }
+
+        private void RefreshReviewList()
+        {
+            var selectedId = (_reviewList?.selectedItem as ScheduledPost)?.id ?? "";
+            _reviewPosts.Clear();
+
+            if (_db?.posts != null)
+            {
+                _reviewPosts.AddRange(_db.posts
+                    .Where(post => post != null && post.status == PostStatus.NeedsReview)
+                    .OrderBy(post => post.lastAttemptAtUtcIso)
+                    .ThenBy(post => post.scheduledAtUtcIso));
+            }
+
+            if (_reviewList != null)
+            {
+                _reviewList.itemsSource = _reviewPosts;
+                _reviewList.Rebuild();
+                _reviewList.style.display = _reviewPosts.Count > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+                _reviewList.selectedIndex = FindReviewPostIndex(selectedId);
+            }
+
+            if (_lblReviewEmpty != null)
+                _lblReviewEmpty.style.display = _reviewPosts.Count > 0 ? DisplayStyle.None : DisplayStyle.Flex;
+
+            SetText(_lblReviewSummary, _reviewPosts.Count == 0
+                ? "No posts need manual review."
+                : $"{_reviewPosts.Count} post(s) need manual review. Discord may already have received an ambiguous send.");
+
+            RefreshReviewSelectionDetails();
+            RefreshHealthUi();
+        }
+
+        private void RefreshReviewSelectionDetails()
+        {
+            var post = GetSelectedReviewPost();
+            if (post == null)
+            {
+                SetReviewActionButtonsEnabled(false);
+                SetText(_lblReviewSelectedEvidence, "Select a NeedsReview post to inspect retry evidence.");
+                return;
+            }
+
+            var item = _reviewQueueService.Build(_db, null, _sendQueue)
+                .FirstOrDefault(reviewItem => string.Equals(reviewItem.postId, post.id, StringComparison.Ordinal));
+
+            if (item == null)
+            {
+                SetReviewActionButtonsEnabled(false);
+                SetText(_lblReviewSelectedEvidence, "Selected post is no longer in NeedsReview.");
+                return;
+            }
+
+            SetReviewActionButtonsEnabled(true);
+            var retry = item.retryAllowed ? "Retry allowed" : "Retry blocked: " + item.retryBlockedReason;
+            var messageId = string.IsNullOrWhiteSpace(item.evidence.lastDiscordMessageId)
+                ? "No Discord message id"
+                : "Message id: " + item.evidence.lastDiscordMessageId;
+            SetText(_lblReviewSelectedEvidence, $"{retry}. Attempts: {item.evidence.retries}. {messageId}. Reason: {item.reason}");
+        }
+
+        private ScheduledPost GetSelectedReviewPost()
+        {
+            var post = _reviewList?.selectedItem as ScheduledPost;
+            return post;
+        }
+
+        private int FindReviewPostIndex(string postId)
+        {
+            if (string.IsNullOrWhiteSpace(postId))
+                return -1;
+
+            return _reviewPosts.FindIndex(post => post != null && post.id == postId);
+        }
+
+        private void SetReviewActionButtonsEnabled(bool enabled)
+        {
+            UiActionState.SetEnabled(_btnReviewOpenPosts, enabled);
+            UiActionState.SetEnabled(_btnReviewRetry, enabled);
+            UiActionState.SetEnabled(_btnReviewDismiss, enabled);
+        }
+
+        private void RetrySelectedReviewPost()
+        {
+            var post = GetSelectedReviewPost();
+            var plan = _reviewQueueService.EvaluateAction(_db, post?.id, ReviewAction.Retry, _sendQueue);
+            if (!plan.allowed)
+            {
+                SetText(_lblReviewSelectedEvidence, plan.message);
+                return;
+            }
+
+            ShowReviewDecisionModal(
+                "Retry selected post",
+                plan.message + " Discord may already have received the previous ambiguous send.",
+                () =>
+                {
+                    var selected = _db.posts.FirstOrDefault(item => item != null && string.Equals(item.id, plan.postId, StringComparison.Ordinal));
+                    var pending = _postStateMachine.TryMarkPendingManual(selected, resetRetries: true);
+                    if (!pending.ok)
+                    {
+                        SetText(_lblReviewSelectedEvidence, pending.error);
+                        return;
+                    }
+
+                    var save = SaveDb();
+                    if (!save.ok)
+                    {
+                        SetText(_lblReviewSelectedEvidence, save.error);
+                        return;
+                    }
+
+                    var queued = EnqueueSend(selected);
+                    SetText(_lblReviewSelectedEvidence, queued ? "Retry queued." : "Retry could not be queued. Check queue/backoff status.");
+                    RefreshPostsList();
+                });
+        }
+
+        private void DismissSelectedReviewPost()
+        {
+            var post = GetSelectedReviewPost();
+            var plan = _reviewQueueService.EvaluateAction(_db, post?.id, ReviewAction.Dismiss, _sendQueue);
+            if (!plan.allowed)
+            {
+                SetText(_lblReviewSelectedEvidence, plan.message);
+                return;
+            }
+
+            ShowReviewDecisionModal(
+                "Dismiss selected review",
+                "Dismiss keeps the post record and marks it failed. It will not retry automatically.",
+                () =>
+                {
+                    var selected = _db.posts.FirstOrDefault(item => item != null && string.Equals(item.id, plan.postId, StringComparison.Ordinal));
+                    var dismiss = _postStateMachine.DismissNeedsReview(selected, "Dismissed from review by user.");
+                    if (!dismiss.ok)
+                    {
+                        SetText(_lblReviewSelectedEvidence, dismiss.error);
+                        return;
+                    }
+
+                    var save = SaveDb();
+                    SetText(_lblReviewSelectedEvidence, save.ok ? "Review dismissed." : save.error);
+                    RefreshPostsList();
+                });
+        }
+
+        private void ShowReviewDecisionModal(string title, string message, Action onConfirm)
+        {
+            EnsureModalUi();
+            var body = new VisualElement();
+            body.Add(new Label(message ?? ""));
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.justifyContent = Justify.FlexEnd;
+            row.style.marginTop = 12;
+
+            var cancel = new Button(HideModal) { text = "Cancel" };
+            cancel.style.marginRight = 8;
+            var confirm = new Button(() =>
+            {
+                HideModal();
+                onConfirm?.Invoke();
+            }) { text = "Confirm" };
+            confirm.AddToClassList("primary");
+
+            row.Add(cancel);
+            row.Add(confirm);
+            body.Add(row);
+            ShowModal(title, body);
+        }
+
+        private void OpenSelectedReviewPostInPosts()
+        {
+            var post = _reviewList?.selectedItem as ScheduledPost;
+            if (post == null && _reviewPosts.Count > 0)
+                post = _reviewPosts[0];
+
+            if (post == null || _db?.posts == null)
+                return;
+
+            var postId = post.id;
+
+            ShowView(_viewPosts);
+            RefreshPostsList();
+            var index = _db.posts.FindIndex(item => item != null && item.id == postId);
+            if (index < 0)
+                return;
+
+            _postsList.selectedIndex = index;
+            LoadSelectedPostIntoEditor();
+        }
+
+        private HealthSnapshot BuildHealthSnapshot()
+        {
+            return _operationalHealth.BuildSnapshot(
+                _db,
+                _sendQueue,
+                _rateLimitRegistry,
+                _timeProvider.UtcNow,
+                _lastSaveWarning,
+                _lastJournalWarning,
+                _lastLockWarning,
+                _lastRetentionWarning);
+        }
+
+        private void RefreshHealthUi()
+        {
+            if (_db == null || _operationalHealth == null)
+                return;
+
+            var health = BuildHealthSnapshot();
+            var stateClass = "statusReady";
+            var stateText = "Ready";
+
+            if (health.hasBlocker)
+            {
+                stateText = "Blocked";
+                stateClass = "statusBlocked";
+            }
+            else if (health.needsReviewCount > 0)
+            {
+                stateText = "Needs review";
+                stateClass = "statusReview";
+            }
+            else if (health.warningCount > 0)
+            {
+                stateText = "Warnings";
+                stateClass = "statusReview";
+            }
+
+            SetText(_lblStatus, health.summary);
+            SetText(_lblHealthState, stateText);
+            ApplyStatusClass(_lblHealthState, stateClass);
+            SetText(_lblNavPending, $"Pending {health.pendingCount}");
+            SetText(_lblNavQueue, $"Queue {health.queuedCount + health.activeSendCount}");
+            SetText(_lblNavReview, $"Review {health.needsReviewCount}");
+
+            SetText(_lblMetricTargets, health.targetCount.ToString());
+            SetText(_lblMetricPending, health.pendingCount.ToString());
+            SetText(_lblMetricQueue, (health.queuedCount + health.activeSendCount).ToString());
+            SetText(_lblMetricReview, health.needsReviewCount.ToString());
+            SetText(_lblMetricWarnings, health.warningCount.ToString());
+            SetText(_lblDashboardSummary, health.summary);
+            SetText(_lblQueueHealthSummary, BuildQueueHealthSummary());
+            SetText(_lblNextPost, BuildNextPostSummary());
+            SetText(_lblSafetySummary, BuildSafetySummary(health));
+        }
+
+        private string BuildQueueHealthSummary()
+        {
+            var viewModel = _queueHealthPresenter?.Build(_db, _sendQueue, _rateLimitRegistry, _timeProvider.UtcNow);
+            if (viewModel == null)
+                return "Queue health is unavailable.";
+
+            if (!viewModel.hasBackoff)
+                return viewModel.headline + ". " + viewModel.summary;
+
+            var wait = string.IsNullOrWhiteSpace(viewModel.nextAttemptUtcIso)
+                ? ""
+                : " Next retry: " + viewModel.nextAttemptUtcIso + ".";
+            var reason = string.IsNullOrWhiteSpace(viewModel.waitReason)
+                ? ""
+                : " Reason: " + viewModel.waitReason;
+
+            return viewModel.headline + ". " + viewModel.summary + wait + reason;
+        }
+
+        private string BuildNextPostSummary()
+        {
+            if (_db?.posts == null)
+                return "No pending posts.";
+
+            ScheduledPost nextPost = null;
+            DateTime nextUtc = DateTime.MaxValue;
+
+            foreach (var post in _db.posts)
+            {
+                if (post == null || post.status != PostStatus.Pending)
+                    continue;
+
+                if (!TimeUtil.TryParseIsoUtc(post.scheduledAtUtcIso, out var scheduledUtc))
+                    continue;
+
+                if (scheduledUtc < nextUtc)
+                {
+                    nextUtc = scheduledUtc;
+                    nextPost = post;
+                }
+            }
+
+            if (nextPost == null)
+                return "No pending posts.";
+
+            var (dateYmd, timeHm) = TimeUtil.UtcToBudapestFields(nextUtc);
+            return $"{dateYmd} {timeHm} - {FindTargetLabel(nextPost.targetId)} - {BuildPostTitle(nextPost)}";
+        }
+
+        private string BuildSafetySummary(HealthSnapshot health)
+        {
+            if (health == null)
+                return "Webhook URLs stay local. Review ambiguous sends before retrying.";
+
+            if (health.hasBlocker)
+                return "Writes or sends are blocked. Check storage and instance warnings before scheduling.";
+
+            if (health.needsReviewCount > 0)
+                return "Review ambiguous sends before retrying. Discord may already have received them.";
+
+            if (health.activeBackoffCount > 0)
+                return "Backoff is active. Retry waits for the persisted next attempt time.";
+
+            return "Webhook URLs stay local. Mentions default to safe settings unless explicitly enabled.";
+        }
+
+        private string BuildPostTitle(ScheduledPost post)
+        {
+            if (post == null)
+                return "(missing post)";
+
+            if (!string.IsNullOrWhiteSpace(post.title))
+                return TrimForDisplay(post.title, 72);
+
+            if (!string.IsNullOrWhiteSpace(post.body))
+                return TrimForDisplay(post.body, 72);
+
+            return "(no title)";
+        }
+
+        private string BuildPostMeta(ScheduledPost post)
+        {
+            if (post == null)
+                return "";
+
+            var schedule = "Invalid schedule";
+            if (TimeUtil.TryParseIsoUtc(post.scheduledAtUtcIso, out var scheduledUtc))
+            {
+                var (dateYmd, timeHm) = TimeUtil.UtcToBudapestFields(scheduledUtc);
+                schedule = $"{dateYmd} {timeHm}";
+            }
+
+            var target = FindTargetLabel(post.targetId);
+            var mediaKind = post.EffectiveMediaKind();
+            var media = mediaKind == MediaKind.None ? "No media" : mediaKind.ToString();
+            var nextAttempt = string.IsNullOrWhiteSpace(post.nextAttemptAtUtcIso)
+                ? ""
+                : " | next attempt " + post.nextAttemptAtUtcIso;
+
+            return $"{schedule} | {target} | {media}{nextAttempt}";
+        }
+
+        private string FindTargetLabel(string targetId)
+        {
+            if (_db?.targets == null || string.IsNullOrWhiteSpace(targetId))
+                return "No target";
+
+            var target = _db.targets.FirstOrDefault(item => item != null && item.id == targetId);
+            if (target == null)
+                return "Missing target";
+
+            if (!string.IsNullOrWhiteSpace(target.name))
+                return target.name;
+
+            var server = target.serverLabel ?? "";
+            var channel = target.channelLabel ?? "";
+            var label = (server + " / " + channel).Trim(' ', '/');
+            return string.IsNullOrWhiteSpace(label) ? "Unnamed target" : label;
+        }
+
+        private static string TrimForDisplay(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+
+            value = value.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (value.Length <= maxLength)
+                return value;
+
+            return value.Substring(0, Math.Max(0, maxLength - 3)) + "...";
+        }
+
+        private void ApplyPostStatusClass(Label label, PostStatus status)
+        {
+            var statusClass = "statusDraft";
+            switch (status)
+            {
+                case PostStatus.Pending:
+                    statusClass = "statusPending";
+                    break;
+                case PostStatus.Sending:
+                    statusClass = "statusSending";
+                    break;
+                case PostStatus.Sent:
+                    statusClass = "statusSent";
+                    break;
+                case PostStatus.Failed:
+                    statusClass = "statusFailed";
+                    break;
+                case PostStatus.Missed:
+                    statusClass = "statusMissed";
+                    break;
+                case PostStatus.NeedsReview:
+                    statusClass = "statusReview";
+                    break;
+            }
+
+            ApplyStatusClass(label, statusClass);
+        }
+
+        private static void ApplyStatusClass(Label label, string statusClass)
+        {
+            if (label == null)
+                return;
+
+            label.AddToClassList("statusPill");
+            label.RemoveFromClassList("statusReady");
+            label.RemoveFromClassList("statusQueued");
+            label.RemoveFromClassList("statusSent");
+            label.RemoveFromClassList("statusPending");
+            label.RemoveFromClassList("statusSending");
+            label.RemoveFromClassList("statusBackoff");
+            label.RemoveFromClassList("statusReview");
+            label.RemoveFromClassList("statusMissed");
+            label.RemoveFromClassList("statusFailed");
+            label.RemoveFromClassList("statusBlocked");
+            label.RemoveFromClassList("statusDraft");
+
+            if (!string.IsNullOrWhiteSpace(statusClass))
+                label.AddToClassList(statusClass);
+        }
+
+        private static void SetText(Label label, string value)
+        {
+            if (label != null)
+                label.text = value ?? "";
         }
 
         private void RefreshTargetsDropdowns()
         {
-            // LINQ: project target names for dropdown choices
-            var targetNames = _db.targets.Select(target => target.name).ToList();
+            var previousPostTargetId = GetSelectedTargetId(_ddPostTarget, _postTargetIds);
+            var previousEditTargetId = GetSelectedTargetId(_ddEditTarget, _editTargetIds);
 
-            _ddPostTarget.choices = targetNames;
-            _ddEditTarget.choices = targetNames;
+            BuildTargetDropdownData(out var labels, out var ids);
 
-            if (targetNames.Count > 0)
+            ApplyTargetDropdown(_ddPostTarget, _postTargetIds, labels, ids, previousPostTargetId, true);
+            ApplyTargetDropdown(_ddEditTarget, _editTargetIds, labels, ids, previousEditTargetId, true);
+        }
+
+        private void BuildTargetDropdownData(out List<string> labels, out List<string> ids)
+        {
+            labels = new List<string>();
+            ids = new List<string>();
+
+            if (_db?.targets == null)
+                return;
+
+            var baseLabels = _db.targets.Select(BuildTargetDropdownLabel).ToList();
+            var duplicateLabels = new HashSet<string>(
+                baseLabels
+                    .GroupBy(label => label)
+                    .Where(group => group.Count() > 1)
+                    .Select(group => group.Key));
+
+            for (var i = 0; i < _db.targets.Count; i++)
             {
-                if (_ddPostTarget.index < 0) _ddPostTarget.index = 0;
-                if (_ddEditTarget.index < 0) _ddEditTarget.index = 0;
-            }
-            else
-            {
-                _ddPostTarget.index = -1;
-                _ddEditTarget.index = -1;
+                var target = _db.targets[i];
+                var label = baseLabels[i];
+                if (duplicateLabels.Contains(label))
+                    label = $"{label} [{ShortTargetId(target?.id)}]";
+
+                labels.Add(label);
+                ids.Add(target?.id ?? "");
             }
         }
 
-        private void AddTarget()
+        private static string BuildTargetDropdownLabel(Target target)
         {
-            var t = Target.CreateNew();
-            _db.targets.Add(t);
-            SaveDb();
-            RefreshTargetsDropdowns();
-            RefreshTargetsList();
-            _targetsList.selectedIndex = _db.targets.Count - 1;
-            LoadSelectedTargetIntoFields();
+            var label = target?.PrettyLabel();
+            return string.IsNullOrWhiteSpace(label) ? "(unnamed target)" : label.Trim();
         }
 
-        private void SaveTargetFromFields()
+        private static string ShortTargetId(string id)
         {
-            var idx = _targetsList.selectedIndex;
-            if (idx < 0 || idx >= _db.targets.Count)
-            {
-                _lblTargetHint.text = "Target not selected.";
-                return;
-            }
+            var normalized = (id ?? "").Trim();
+            if (normalized.Length == 0)
+                return "no-id";
 
-            var t = _db.targets[idx];
-
-            t.name = (_tfTargetName.value ?? "").Trim();
-            t.serverLabel = (_tfTargetServer.value ?? "").Trim();
-            t.channelLabel = (_tfTargetChannel.value ?? "").Trim();
-            t.webhookUrl = (_tfTargetWebhook.value ?? "").Trim();
-            t.overrideUsername = (_tfTargetUsername.value ?? "").Trim();
-            t.overrideAvatarUrl = (_tfTargetAvatar.value ?? "").Trim();
-
-            if (string.IsNullOrWhiteSpace(t.name))
-            {
-                _lblTargetHint.text = "Musthave target name.";
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(t.webhookUrl) || !t.webhookUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            {
-                _lblTargetHint.text = "Musthave Webhook URL (http/https).";
-                return;
-            }
-
-            SaveDb();
-            RefreshTargetsDropdowns();
-            RefreshTargetsList();
-            _lblTargetHint.text = "Saved.";
+            return normalized.Length <= 8 ? normalized : normalized.Substring(0, 8);
         }
 
-        private void DeleteSelectedTarget()
+        private static string GetSelectedTargetId(DropdownField dropdownField, List<string> targetIds)
         {
-            var idx = _targetsList.selectedIndex;
-            if (idx < 0 || idx >= _db.targets.Count) return;
+            if (dropdownField == null || targetIds == null)
+                return null;
 
-            var id = _db.targets[idx].id;
-
-            // also remove posts linked to this target
-            _db.posts.RemoveAll(p => p.targetId == id);
-
-            _db.targets.RemoveAt(idx);
-
-            SaveDb();
-            RefreshTargetsDropdowns();
-            RefreshTargetsList();
-            RefreshPostsList();
-            _lblTargetHint.text = "Deleted.";
+            return dropdownField.index >= 0 && dropdownField.index < targetIds.Count
+                ? targetIds[dropdownField.index]
+                : null;
         }
 
-        private void LoadSelectedTargetIntoFields()
+        private static void ApplyTargetDropdown(
+            DropdownField dropdownField,
+            List<string> targetIds,
+            List<string> labels,
+            List<string> ids,
+            string preferredTargetId,
+            bool selectFirstWhenMissing)
         {
-            var idx = _targetsList.selectedIndex;
-            if (idx < 0 || idx >= _db.targets.Count)
+            if (dropdownField == null || targetIds == null)
+                return;
+
+            var previousIndex = dropdownField.index;
+
+            targetIds.Clear();
+            targetIds.AddRange(ids);
+            dropdownField.choices = new List<string>(labels);
+
+            if (ids.Count == 0)
             {
-                _tfTargetName.value = "";
-                _tfTargetServer.value = "";
-                _tfTargetChannel.value = "";
-                _tfTargetWebhook.value = "";
-                _tfTargetUsername.value = "";
-                _tfTargetAvatar.value = "";
+                dropdownField.index = -1;
                 return;
             }
 
-            var t = _db.targets[idx];
-            _tfTargetName.value = t.name ?? "";
-            _tfTargetServer.value = t.serverLabel ?? "";
-            _tfTargetChannel.value = t.channelLabel ?? "";
-            _tfTargetWebhook.value = t.webhookUrl ?? "";
-            _tfTargetUsername.value = t.overrideUsername ?? "";
-            _tfTargetAvatar.value = t.overrideAvatarUrl ?? "";
-        }
+            var preferredIndex = !string.IsNullOrWhiteSpace(preferredTargetId)
+                ? ids.IndexOf(preferredTargetId)
+                : -1;
 
-        private void TestSelectedTarget()
-        {
-            var idx = _targetsList.selectedIndex;
-            if (idx < 0 || idx >= _db.targets.Count)
+            if (preferredIndex >= 0)
             {
-                _lblTargetHint.text = "No target Selected.";
+                dropdownField.index = preferredIndex;
                 return;
             }
 
-            var t = _db.targets[idx];
-
-            var temp = ScheduledPost.CreateNew(t.id);
-            temp.title = "Test message";
-            temp.body = "Test message from DisDoveOnTime.";
-            temp.SetScheduledAtUtc(DateTime.UtcNow); 
-
-            StartCoroutine(_webhook.Send(t, temp, (ok, err) =>
+            if (previousIndex >= 0 && previousIndex < ids.Count)
             {
-                _lblTargetHint.text = ok ? "Test sent." : $"Error: {err}";
-            }));
+                dropdownField.index = previousIndex;
+                return;
+            }
+
+            dropdownField.index = selectFirstWhenMissing ? 0 : -1;
+        }
+
+        private static void SelectTargetDropdownById(DropdownField dropdownField, List<string> targetIds, string targetId)
+        {
+            if (dropdownField == null || targetIds == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(targetId))
+            {
+                dropdownField.index = -1;
+                return;
+            }
+
+            var idx = targetIds.IndexOf(targetId);
+            dropdownField.index = idx >= 0 ? idx : -1;
+        }
+
+        private string SafeWebhookError(string error, string webhookUrl)
+        {
+            var safe = SecretRedactor.Redact(string.IsNullOrWhiteSpace(error) ? "Webhook request failed." : error);
+            if (!string.IsNullOrWhiteSpace(webhookUrl))
+                safe = safe.Replace(webhookUrl.Trim(), _webhookUrlValidator.Mask(webhookUrl));
+
+            const int maxLength = 240;
+            if (safe.Length > maxLength)
+                safe = safe.Substring(0, maxLength) + "...";
+
+            return safe;
         }
 
         private Target GetTargetByDropdown(DropdownField dropdownField)
@@ -1161,8 +1766,11 @@ namespace DiscordScheduler
             if (dropdownField == null) return null; // guard: missing dropdown binding
             if (dropdownField.index < 0 || dropdownField.choices == null || dropdownField.index >= dropdownField.choices.Count) return null; // Guard: no selection
 
-            var targetName = dropdownField.choices[dropdownField.index];
-            return _db.targets.FirstOrDefault(target => target.name == targetName); // LINQ: pick the first target matching the selected name
+            var targetIds = dropdownField == _ddEditTarget ? _editTargetIds : _postTargetIds;
+            var targetId = GetSelectedTargetId(dropdownField, targetIds);
+            if (string.IsNullOrWhiteSpace(targetId)) return null;
+
+            return _db.targets.FirstOrDefault(target => target.id == targetId);
         }
 
 
@@ -1202,88 +1810,106 @@ namespace DiscordScheduler
                 return;
             }
 
-            var scheduledUtc = TimeUtil.LocalBudapestToUtc((_tfDate.value ?? "").Trim(), (_tfTime.value ?? "").Trim(), out var errorMessage);
-            if (!string.IsNullOrEmpty(errorMessage))
+            var draft = BuildCreatePostDraft(target);
+            var preview = _payloadPreviewService.Build(target, draft);
+            _lastCreatePayloadPreview = preview;
+            var previewViewModel = _payloadPreviewPresenter.Build(preview);
+            RenderCreatePayloadPreview(previewViewModel);
+            if (!preview.canSend)
             {
-                _lblScheduleResult.text = errorMessage;
+                _lblScheduleResult.text = string.IsNullOrWhiteSpace(previewViewModel.disabledReason)
+                    ? "Preview blocked scheduling."
+                    : previewViewModel.disabledReason;
                 return;
             }
 
-            var scheduledPost = ScheduledPost.CreateNew(target.id);
-            scheduledPost.title = (_tfPostTitle?.value ?? "").Trim();
-            scheduledPost.body = (_tfPostBody?.value ?? "").Trim();
-            scheduledPost.sendAsEmbed = _tgPostModeEmbed != null && _tgPostModeEmbed.value;
-            scheduledPost.SetScheduledAtUtc(scheduledUtc); // <- FIX
-
-            // allowed mentions from UI
-            scheduledPost.allowedMentions.allowUsers = _tgAllowUsers != null && _tgAllowUsers.value;
-            scheduledPost.allowedMentions.allowRoles = _tgAllowRoles != null && _tgAllowRoles.value;
-            scheduledPost.allowedMentions.allowEveryone = _tgAllowEveryone != null && _tgAllowEveryone.value;
-            scheduledPost.allowedMentions.userIdsCsv = _tfMentionUserIds?.value ?? "";
-            scheduledPost.allowedMentions.roleIdsCsv = _tfMentionRoleIds?.value ?? "";
-
-            scheduledPost.missedPolicyIfOff = (MissedPolicy)Mathf.Clamp(_ddOffPolicy.index, 0, 2);
-            scheduledPost.missedPolicyIfSleep = (MissedPolicy)Mathf.Clamp(_ddSleepPolicy.index, 0, 2);
-
-            // copy image to attachments folder
-            string imagePath = (_tfImagePath?.value ?? "").Trim();
-            if (!string.IsNullOrEmpty(imagePath))
+            var createResult = _postApp.CreatePost(draft, _db, out var scheduledPost);
+            if (!createResult.ok)
             {
-                if (!FileUtil.TryCopyToAttachments(imagePath, scheduledPost.id, out var newPath, out var copyError))
-                {
-                    _lblScheduleResult.text = copyError;
-                    return; // copy failed
-                }
-
-                if (!string.IsNullOrEmpty(newPath))
-                {
-                    long sizeBytes = FileUtil.GetFileSizeBytes(newPath);
-                    if (sizeBytes > FileUtil.MaxAttachmentBytes)
-                    {
-                        _lblScheduleResult.text = "Image too large (>10MB). Non-Nitro limit.";
-                        return; // oversized image
-                    }
-
-                    scheduledPost.imagePath = newPath;
-                }
+                _lblScheduleResult.text = createResult.error;
+                return;
             }
 
-            // media: copy into attachments folder if selected
-            scheduledPost.SetMedia(MediaKind.None, "");
-
-            if (_tgAttachMedia != null && _tgAttachMedia.value)
-            {
-                var mediaPath = (_tfMediaPath?.value ?? "").Trim();
-
-                if (!string.IsNullOrEmpty(mediaPath))
-                {
-                    if (!FileUtil.TryCopyMediaToAttachments(mediaPath, scheduledPost.id, MediaKind.None, out var newPath, out var copyError))
-                    {
-                        _lblScheduleResult.text = copyError;
-                        return; // early return: media copy failed
-                    }
-
-                    if (!string.IsNullOrEmpty(newPath))
-                    {
-                        var mediaKind = FileUtil.GuessKindFromExt((Path.GetExtension(newPath) ?? "").ToLowerInvariant());
-                        scheduledPost.SetMedia(mediaKind, newPath);
-                    }
-                }
-            }
-
-            // basic validations
-            if (string.IsNullOrWhiteSpace(scheduledPost.title) && string.IsNullOrWhiteSpace(scheduledPost.body))
-            {
-                _lblScheduleResult.text = "Title or message is required.";
-                return; // early return: nothing to send
-            }
-
-            _db.posts.Add(scheduledPost);
             _log.Info($"Scheduled '{scheduledPost.title}' ({scheduledPost.id}) for {scheduledPost.scheduledAtUtcIso} -> {target.name}");
             SaveDb();
             RefreshPostsList();
 
             _lblScheduleResult.text = "Scheduled.";
+            _lastCreatePayloadPreview = null;
+            RenderCreatePayloadPreview(null);
+        }
+
+        private void BindCreatePayloadPreview()
+        {
+            var btnPreviewRefresh = _root.Q<Button>("btnPayloadPreviewRefresh");
+            if (btnPreviewRefresh != null)
+                btnPreviewRefresh.clicked += RefreshCreatePayloadPreview;
+
+            RegisterCreatePreviewInvalidators();
+        }
+
+        private void RefreshCreatePayloadPreview()
+        {
+            var target = GetTargetByDropdown(_ddPostTarget);
+            var draft = BuildCreatePostDraft(target);
+            _lastCreatePayloadPreview = _payloadPreviewService.Build(target, draft);
+            RenderCreatePayloadPreview(_payloadPreviewPresenter.Build(_lastCreatePayloadPreview));
+        }
+
+        private void UpdateCreatePayloadPreviewStaleState()
+        {
+            if (_lastCreatePayloadPreview == null)
+                return;
+
+            var target = GetTargetByDropdown(_ddPostTarget);
+            var draft = BuildCreatePostDraft(target);
+            var currentFingerprint = _payloadPreviewService.BuildFingerprint(target, draft);
+            RenderCreatePayloadPreview(_payloadPreviewPresenter.Build(_lastCreatePayloadPreview, currentFingerprint));
+        }
+
+        private void RenderCreatePayloadPreview(PayloadPreviewViewModel viewModel)
+        {
+            if (viewModel == null)
+            {
+                SetText(_lblPayloadPreviewHeadline, "Preview has not been generated yet.");
+                SetText(_lblPayloadPreviewDigest, "No Discord request has been built.");
+                SetText(_lblPayloadPreviewDetails, "Preview uses the same local normalizer and validator as sending.");
+                SetText(_lblPayloadPreviewPayload, "");
+                return;
+            }
+
+            SetText(_lblPayloadPreviewHeadline, viewModel.headline);
+            SetText(_lblPayloadPreviewDigest, viewModel.previewDigest);
+
+            var details = string.IsNullOrWhiteSpace(viewModel.disabledReason)
+                ? viewModel.readiness + " - " + viewModel.primaryAction
+                : viewModel.readiness + " - " + viewModel.disabledReason;
+            SetText(_lblPayloadPreviewDetails, details);
+
+            var payload = viewModel.technicalDetailsAvailable
+                ? "Redacted payload: " + viewModel.redactedPayloadJson
+                : "";
+            SetText(_lblPayloadPreviewPayload, payload);
+        }
+
+        private void RegisterCreatePreviewInvalidators()
+        {
+            if (_ddPostTarget != null) _ddPostTarget.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfPostTitle != null) _tfPostTitle.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfPostBody != null) _tfPostBody.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfDate != null) _tfDate.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfTime != null) _tfTime.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfMediaPath != null) _tfMediaPath.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgPostModeNormal != null) _tgPostModeNormal.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgPostModeEmbed != null) _tgPostModeEmbed.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgAttachMedia != null) _tgAttachMedia.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgAllowUsers != null) _tgAllowUsers.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgAllowRoles != null) _tgAllowRoles.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tgAllowEveryone != null) _tgAllowEveryone.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfMentionUserIds != null) _tfMentionUserIds.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_tfMentionRoleIds != null) _tfMentionRoleIds.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_ddOffPolicy != null) _ddOffPolicy.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
+            if (_ddSleepPolicy != null) _ddSleepPolicy.RegisterValueChangedCallback(_ => UpdateCreatePayloadPreviewStaleState());
         }
 
 
@@ -1295,6 +1921,10 @@ namespace DiscordScheduler
             var selectedIndex = _postsList.selectedIndex;
             if (selectedIndex < 0 || selectedIndex >= _db.posts.Count)
             {
+                if (_lblPostSelectionHint != null)
+                    _lblPostSelectionHint.style.display = DisplayStyle.Flex;
+
+                SetPostEditActionButtonsEnabled(false);
                 _tfEditTitle.value = "";
                 _tfEditBody.value = "";
                 _tfEditDate.value = "";
@@ -1303,19 +1933,32 @@ namespace DiscordScheduler
                 if (_ddEditAttachmentPick != null) _ddEditAttachmentPick.index = -1;
                 _lblEditStatus.text = "";
                 RefreshBodyCounter(_tfEditBody, _lblEditBodyCounter);
-                UpdateMediaPreviewEdit();
+                _mediaPreview.UpdateEdit();
                 return; // early return: no selection
             }
 
+            if (_lblPostSelectionHint != null)
+                _lblPostSelectionHint.style.display = DisplayStyle.None;
+
+            SetPostEditActionButtonsEnabled(true);
             var scheduledPost = _db.posts[selectedIndex];
+            SelectTargetDropdownById(_ddEditTarget, _editTargetIds, scheduledPost.targetId);
 
             _tfEditTitle.value = scheduledPost.title ?? "";
             _tfEditBody.value = scheduledPost.body ?? "";
 
-            var scheduledUtc = TimeUtil.ParseIsoUtc(scheduledPost.scheduledAtUtcIso);
-            var (dateYmd, timeHm) = TimeUtil.UtcToBudapestFields(scheduledUtc);
-            _tfEditDate.value = dateYmd;
-            _tfEditTime.value = timeHm;
+            if (TimeUtil.TryParseIsoUtc(scheduledPost.scheduledAtUtcIso, out var scheduledUtc))
+            {
+                var (dateYmd, timeHm) = TimeUtil.UtcToBudapestFields(scheduledUtc);
+                _tfEditDate.value = dateYmd;
+                _tfEditTime.value = timeHm;
+            }
+            else
+            {
+                _tfEditDate.value = "";
+                _tfEditTime.value = "";
+                _lblEditResult.text = "Invalid saved schedule. Pick a new date and time.";
+            }
 
             // media path: prefer "new" media system if present, otherwise fallback to legacy imagePath
             var effectiveMediaPath = (scheduledPost.EffectiveMediaPath() ?? "").Trim();
@@ -1339,7 +1982,13 @@ namespace DiscordScheduler
             RefreshBodyCounter(_tfEditBody, _lblEditBodyCounter);
             SetRadio(_tgEditModeNormal, _tgEditModeEmbed, scheduledPost.sendAsEmbed);
 
-            UpdateMediaPreviewEdit();
+            _mediaPreview.UpdateEdit();
+        }
+
+        private void SetPostEditActionButtonsEnabled(bool hasSelection)
+        {
+            var hasSentPosts = _db?.posts != null && _db.posts.Any(post => post != null && post.status == PostStatus.Sent);
+            _postEditPanel.SetActionButtonsEnabled(hasSelection, hasSentPosts);
         }
 
         private void SyncEditAttachmentDropdownToPath(string path)
@@ -1378,88 +2027,16 @@ namespace DiscordScheduler
                 return; // early return: invalid target
             }
 
-            var scheduledAt = TimeUtil.LocalBudapestToUtc(_tfEditDate.value, _tfEditTime.value, out var errorMessage);
-            if (!string.IsNullOrEmpty(errorMessage))
+            var draft = BuildEditPostDraft(scheduledPost, target);
+            var updateResult = _postApp.UpdatePost(scheduledPost, draft, _db);
+            if (!updateResult.ok)
             {
-                _lblEditResult.text = errorMessage;
-                return; // early return: invalid date/time
+                _lblEditResult.text = updateResult.error;
+                return;
             }
 
-            scheduledPost.targetId = target.id;
-            scheduledPost.title = (_tfEditTitle.value ?? "").Trim();
-            scheduledPost.body = (_tfEditBody.value ?? "").Trim();
-            scheduledPost.sendAsEmbed = _tgEditModeEmbed != null && _tgEditModeEmbed.value;
-            scheduledPost.SetScheduledAtUtc(scheduledAt);
-
-            scheduledPost.allowedMentions.allowUsers = _tgEditAllowUsers.value;
-            scheduledPost.allowedMentions.allowRoles = _tgEditAllowRoles.value;
-            scheduledPost.allowedMentions.allowEveryone = _tgEditAllowEveryone.value;
-            scheduledPost.allowedMentions.userIdsCsv = _tfEditMentionUserIds.value ?? "";
-            scheduledPost.allowedMentions.roleIdsCsv = _tfEditMentionRoleIds.value ?? "";
-
-            scheduledPost.missedPolicyIfOff = (MissedPolicy)Mathf.Clamp(_ddEditOffPolicy.index, 0, 2);
-            scheduledPost.missedPolicyIfSleep = (MissedPolicy)Mathf.Clamp(_ddEditSleepPolicy.index, 0, 2);
-
-            // image copy if changed
-            string imagePath = (_tfEditImagePath.value ?? "").Trim();
-            if (string.IsNullOrEmpty(imagePath))
-            {
-                scheduledPost.imagePath = "";
-                SyncEditAttachmentDropdownToPath("");
-                UpdateMediaPreviewEdit();
-            }
-            else
-            {
-                // if its already in attachments folder, accept as-is
-                if (!imagePath.StartsWith(FileUtil.AttachmentsFolder, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!FileUtil.TryCopyToAttachments(imagePath, scheduledPost.id, out var newPath, out var copyError))
-                    {
-                        _lblEditResult.text = copyError;
-                        return; // Early return: copy failed
-                    }
-
-                    if (!string.IsNullOrEmpty(newPath))
-                    {
-                        long sizeBytes = FileUtil.GetFileSizeBytes(newPath);
-                        if (sizeBytes > FileUtil.MaxAttachmentBytes)
-                        {
-                            _lblEditResult.text = "Image too large (>10 MB). Non-Nitro limit.";
-                            return; // early return: oversized image
-                        }
-
-                        scheduledPost.imagePath = newPath;
-                        SyncEditAttachmentDropdownToPath(newPath);
-                        UpdateMediaPreviewEdit();
-                    }
-                }
-                else
-                {
-                    // still validate size
-                    if (File.Exists(imagePath))
-                    {
-                        long sizeBytes = FileUtil.GetFileSizeBytes(imagePath);
-                        if (sizeBytes > FileUtil.MaxAttachmentBytes)
-                        {
-                            _lblEditResult.text = "Image too large (>10 MB). Non-Nitro limit.";
-                            return; // early return: oversized image
-                        }
-                    }
-
-                    scheduledPost.imagePath = imagePath;
-                    SyncEditAttachmentDropdownToPath(imagePath);
-                    UpdateMediaPreviewEdit();
-                }
-            }
-
-            // Basic validations
-            if (string.IsNullOrWhiteSpace(scheduledPost.title) && string.IsNullOrWhiteSpace(scheduledPost.body))
-            {
-                _lblEditResult.text = "Please enter a title or text.";
-                return; // Early return: nothing to send
-            }
-
-            scheduledPost.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+            SyncEditAttachmentDropdownToPath(scheduledPost.EffectiveMediaPath());
+            _mediaPreview.UpdateEdit();
 
             SaveDb();
             RefreshPostsList();
@@ -1471,6 +2048,17 @@ namespace DiscordScheduler
         {
             var idx = _postsList.selectedIndex;
             if (idx < 0 || idx >= _db.posts.Count) return;
+
+            var post = _db.posts[idx];
+            var deleteGuard = _mutationGuard.CanDeletePost(post);
+            if (!deleteGuard.ok)
+            {
+                _lblEditResult.text = deleteGuard.error;
+                return;
+            }
+
+            if (post != null && _sendQueue.CancelQueued(post.id))
+                _log.Warn($"Cancelled queued send for deleted post: {post.id}");
 
             _db.posts.RemoveAt(idx);
             SaveDb();
@@ -1497,10 +2085,9 @@ namespace DiscordScheduler
                 return;
             }
 
-            var p = _db.posts[idx];
-            _log.Info($"Force send requested: {p.id} ({p.title})");
-            EnqueueSend(p);
-            _lblEditResult.text = "Queued for sending.";
+            var selectedPost = _db.posts[idx];
+            _log.Info($"Force send requested: {selectedPost.id} ({selectedPost.title})");
+            _lblEditResult.text = EnqueueSend(selectedPost) ? "Queued for sending." : "Post cannot be queued.";
         }
 
         private void MarkSelectedPostPending()
@@ -1512,51 +2099,18 @@ namespace DiscordScheduler
                 return;
             }
 
-            var p = _db.posts[idx];
-            p.status = PostStatus.Pending;
-            p.lastError = "";
-            p.retries = 0;
-            p.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+            var selectedPost = _db.posts[idx];
+            var pendingResult = _postStateMachine.TryMarkPendingManual(selectedPost, resetRetries: true);
+            if (!pendingResult.ok)
+            {
+                _lblEditResult.text = pendingResult.error;
+                return;
+            }
 
             SaveDb();
             RefreshPostsList();
             _lblEditResult.text = "Set to pending.";
             LoadSelectedPostIntoEditor();
-        }
-
-        private void LoadSettingsIntoUI()
-        {
-            _ifSleepThreshold.value = Mathf.Clamp(_db.settings.sleepThresholdMinutes, 1, 999999);
-
-            _tgDefaultAllowUsers.value = _db.settings.defaultAllowedMentions.allowUsers;
-            _tgDefaultAllowRoles.value = _db.settings.defaultAllowedMentions.allowRoles;
-            _tgDefaultAllowEveryone.value = _db.settings.defaultAllowedMentions.allowEveryone;
-            _tfDefaultUserIds.value = _db.settings.defaultAllowedMentions.userIdsCsv ?? "";
-            _tfDefaultRoleIds.value = _db.settings.defaultAllowedMentions.roleIdsCsv ?? "";
-
-            _ddDefaultOffPolicy.index = Mathf.Clamp((int)_db.settings.defaultOffPolicy, 0, 2);
-            _ddDefaultSleepPolicy.index = Mathf.Clamp((int)_db.settings.defaultSleepPolicy, 0, 2);
-
-            _lblPaths.text = $"Data: {FileUtil.DataFolder}\nAttachments: {FileUtil.AttachmentsFolder}";
-        }
-
-        private void SaveSettingsFromUI()
-        {
-            _lblSettingsResult.text = "";
-
-            _db.settings.sleepThresholdMinutes = Mathf.Clamp(_ifSleepThreshold.value, 1, 999999);
-
-            _db.settings.defaultAllowedMentions.allowUsers = _tgDefaultAllowUsers.value;
-            _db.settings.defaultAllowedMentions.allowRoles = _tgDefaultAllowRoles.value;
-            _db.settings.defaultAllowedMentions.allowEveryone = _tgDefaultAllowEveryone.value;
-            _db.settings.defaultAllowedMentions.userIdsCsv = _tfDefaultUserIds.value ?? "";
-            _db.settings.defaultAllowedMentions.roleIdsCsv = _tfDefaultRoleIds.value ?? "";
-
-            _db.settings.defaultOffPolicy = (MissedPolicy)Mathf.Clamp(_ddDefaultOffPolicy.index, 0, 2);
-            _db.settings.defaultSleepPolicy = (MissedPolicy)Mathf.Clamp(_ddDefaultSleepPolicy.index, 0, 2);
-
-            SaveDb();
-            _lblSettingsResult.text = "Saved.";
         }
 
         private void RefreshAttachmentsDropdownNew()
@@ -1579,16 +2133,17 @@ namespace DiscordScheduler
                     File.Exists(current))
                 {
                     var tempId = "temp-" + Guid.NewGuid().ToString("N");
-                    if (FileUtil.TryCopyMediaToAttachments(current, tempId, MediaKind.None, out var newPath, out var copyErr))
+                    var mediaResult = _postMediaService.TryPrepareMedia(current, tempId, MediaKind.None, out _, out var newPath);
+                    if (mediaResult.ok)
                     {
                         _tfMediaPath.value = newPath;
                         preferredPath = newPath;
                         _lblMediaHint.text = "";
-                        UpdateMediaPreviewNew();
+                        _mediaPreview.UpdateNew();
                     }
                     else
                     {
-                        _lblMediaHint.text = copyErr;
+                        _lblMediaHint.text = mediaResult.error;
                     }
                 }
                 else
@@ -1598,7 +2153,7 @@ namespace DiscordScheduler
             }
 
             RefreshAttachmentsDropdown(_ddMediaPick, MediaKind.None, preferredPath);
-            UpdateMediaPreviewNew();
+            _mediaPreview.UpdateNew();
         }
         private void RefreshAttachmentsDropdownEdit()
         {
@@ -1651,160 +2206,432 @@ namespace DiscordScheduler
             return Path.Combine(FileUtil.AttachmentsFolder, file);
         }
 
-        private void ApplyMissedPolicyAndMaybeEnqueue(ScheduledPost scheduledPost, bool isOffMissed, bool isSleepMissed)
+        private PostDraft BuildCreatePostDraft(Target target)
         {
-            // determine policy
-            MissedPolicy policy;
-            if (isOffMissed)
+            return new PostDraft
             {
-                policy = scheduledPost.missedPolicyIfOff;
-            }
-            else
+                targetId = target?.id ?? "",
+                title = (_tfPostTitle?.value ?? "").Trim(),
+                body = (_tfPostBody?.value ?? "").Trim(),
+                dateYmd = (_tfDate?.value ?? "").Trim(),
+                timeHm = (_tfTime?.value ?? "").Trim(),
+                mediaPath = GetCreateDraftMediaPath(),
+                sendAsEmbed = _tgPostModeEmbed != null && _tgPostModeEmbed.value,
+                allowedMentions = new AllowedMentions
+                {
+                    allowUsers = _tgAllowUsers != null && _tgAllowUsers.value,
+                    allowRoles = _tgAllowRoles != null && _tgAllowRoles.value,
+                    allowEveryone = _tgAllowEveryone != null && _tgAllowEveryone.value,
+                    userIdsCsv = _tfMentionUserIds?.value ?? "",
+                    roleIdsCsv = _tfMentionRoleIds?.value ?? ""
+                },
+                missedPolicyIfOff = (MissedPolicy)Mathf.Clamp(_ddOffPolicy.index, 0, 2),
+                missedPolicyIfSleep = (MissedPolicy)Mathf.Clamp(_ddSleepPolicy.index, 0, 2)
+            };
+        }
+
+        private PostDraft BuildEditPostDraft(ScheduledPost scheduledPost, Target target)
+        {
+            return new PostDraft
             {
-                policy = scheduledPost.missedPolicyIfSleep;
+                id = scheduledPost?.id ?? "",
+                targetId = target?.id ?? "",
+                title = (_tfEditTitle?.value ?? "").Trim(),
+                body = (_tfEditBody?.value ?? "").Trim(),
+                dateYmd = (_tfEditDate?.value ?? "").Trim(),
+                timeHm = (_tfEditTime?.value ?? "").Trim(),
+                mediaPath = (_tfEditImagePath?.value ?? "").Trim(),
+                sendAsEmbed = _tgEditModeEmbed != null && _tgEditModeEmbed.value,
+                allowedMentions = new AllowedMentions
+                {
+                    allowUsers = _tgEditAllowUsers != null && _tgEditAllowUsers.value,
+                    allowRoles = _tgEditAllowRoles != null && _tgEditAllowRoles.value,
+                    allowEveryone = _tgEditAllowEveryone != null && _tgEditAllowEveryone.value,
+                    userIdsCsv = _tfEditMentionUserIds?.value ?? "",
+                    roleIdsCsv = _tfEditMentionRoleIds?.value ?? ""
+                },
+                missedPolicyIfOff = (MissedPolicy)Mathf.Clamp(_ddEditOffPolicy.index, 0, 2),
+                missedPolicyIfSleep = (MissedPolicy)Mathf.Clamp(_ddEditSleepPolicy.index, 0, 2)
+            };
+        }
+
+        private string GetCreateDraftMediaPath()
+        {
+            if (_tgAttachMedia != null && _tgAttachMedia.value)
+                return (_tfMediaPath?.value ?? "").Trim();
+
+            return (_tfImagePath?.value ?? "").Trim();
+        }
+
+        private void HandleDuePost(DuePost duePost)
+        {
+            var decision = _schedulePolicy.Decide(duePost);
+            if (duePost == null || duePost.post == null)
+            {
+                _log.Warn($"Schedule decision ignored: {decision.reason}");
+                return;
             }
 
-            if (policy == MissedPolicy.SendOnNextRun)
+            ApplyScheduleDecision(duePost.post, decision);
+        }
+
+        private void ApplyScheduleDecision(ScheduledPost scheduledPost, ScheduleDecision decision)
+        {
+            if (scheduledPost == null) return;
+
+            decision = decision ?? ScheduleDecision.Ignore("Missing schedule decision.");
+
+            if (decision.kind == ScheduleDecisionKind.Enqueue)
             {
-                _log.Info($"Missed -> enqueue {scheduledPost.id} ({scheduledPost.title}) policy: SendOnNextRun off:{isOffMissed} sleep:{isSleepMissed}");
+                _log.Info($"Schedule decision enqueue: {scheduledPost.id} ({scheduledPost.title}) reason: {decision.reason}");
                 EnqueueSend(scheduledPost);
-                return; // early return: will enqueue
+                return;
             }
 
-            if (policy == MissedPolicy.MarkMissed)
+            if (decision.kind == ScheduleDecisionKind.MarkMissed)
             {
-                scheduledPost.status = PostStatus.Missed;
-                scheduledPost.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
-                _log.Warn($"Marked missed: {scheduledPost.id} ({scheduledPost.title})");
-                SaveDb();
-                RefreshPostsList();
-                return; // early return: marked missed
-            }
+                var transition = _postStateMachine.MarkMissed(scheduledPost, decision.reason);
+                if (!transition.ok)
+                {
+                    _log.Warn($"Mark missed rejected for {scheduledPost.id} ({scheduledPost.title}) reason: {transition.error}");
+                    return;
+                }
 
-            if (policy == MissedPolicy.MarkFailed)
-            {
-                scheduledPost.status = PostStatus.Failed;
-                scheduledPost.lastError = "Missed (policy: Failed).";
-                scheduledPost.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
-                _log.Warn($"Marked failed (missed): {scheduledPost.id} ({scheduledPost.title})");
+                _log.Warn($"Marked missed: {scheduledPost.id} ({scheduledPost.title}) reason: {decision.reason}");
                 SaveDb();
                 RefreshPostsList();
                 return;
             }
+
+            if (decision.kind == ScheduleDecisionKind.MarkFailed)
+            {
+                var transition = _postStateMachine.MarkFailedByPolicy(scheduledPost, $"Missed (policy: Failed). {decision.reason}");
+                if (!transition.ok)
+                {
+                    _log.Warn($"Mark failed rejected for {scheduledPost.id} ({scheduledPost.title}) reason: {transition.error}");
+                    return;
+                }
+
+                _log.Warn($"Marked failed (missed): {scheduledPost.id} ({scheduledPost.title}) reason: {decision.reason}");
+                SaveDb();
+                RefreshPostsList();
+                return;
+            }
+
+            _log.Warn($"Schedule decision ignored for {scheduledPost.id} ({scheduledPost.title}) reason: {decision.reason}");
         }
 
-        private void EnqueueSend(ScheduledPost p)
+        private bool EnqueueSend(ScheduledPost p)
         {
-            if (p == null) return;
+            if (p == null) return false;
+            if (_storageWriteBlocked)
+            {
+                _log.Warn("Queue send rejected: storage is locked by another app instance.");
+                return false;
+            }
 
-            if (p.status == PostStatus.Sent) return;
+            var canStart = _lifecycle.CanStartSend();
+            if (!canStart.ok)
+            {
+                _log.Warn($"Queue send rejected: {p.id} ({p.title}) reason: {canStart.error}");
+                return false;
+            }
 
             // if allowed mentions UI was hidden, optionally apply defaults if user hasn't set explicit values.
             // (we keep the stored values as-is; defaults are used at creation time already in ScheduledPost.)
 
-            p.status = PostStatus.Sending;
-            p.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+            var previousState = _postStateMachine.Capture(p);
+            if (!TryApplyRateLimitGuard(p))
+                return false;
+
+            var enqueue = _sendQueue.TryEnqueue(p);
+            if (!enqueue.ok)
+            {
+                if (!string.Equals(enqueue.error, "Post retry is not due yet.", StringComparison.Ordinal))
+                    _log.Warn($"Queue send rejected: {p.id} ({p.title}) reason: {enqueue.error}");
+                return false;
+            }
+
             _log.Info($"Queue send: {p.id} ({p.title}) scheduled {p.scheduledAtUtcIso}");
 
-            SaveDb();
-            RefreshPostsList();
+            var saveResult = SaveDb();
+            if (!saveResult.ok)
+            {
+                _sendQueue.CancelQueued(p.id);
+                _postStateMachine.Restore(p, previousState);
+                _log.Error("Queue send aborted because the Sending state could not be persisted.");
+                RefreshPostsList();
+                return false;
+            }
 
-            _sendQueuePostIds.Enqueue(p.id);
+            RefreshPostsList();
+            return true;
         }
 
         private IEnumerator SendPostCoroutine(ScheduledPost post)
         {
-            _isSending = true;
             var target = _db.targets.FirstOrDefault(t => t.id == post.targetId);
+            var attemptId = Guid.NewGuid().ToString("N");
+            var startedAtUtcIso = TimeUtil.ToIsoUtc(_timeProvider.UtcNow);
 
             if (target == null)
             {
-                post.status = PostStatus.Failed;
-                post.lastError = "Missing target (deleted?).";
-                post.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+                var missingTargetResult = new WebhookSendResult
+                {
+                    ok = false,
+                    statusCode = 0,
+                    outcome = SendOutcomeKind.NonRetryable,
+                    shortError = "Missing target (deleted?)."
+                };
+                _postStateMachine.MarkFailedByPolicy(post, missingTargetResult.shortError);
+                AppendSendAttempt(post, null, attemptId, startedAtUtcIso, missingTargetResult);
                 _log.Error($"Send failed: missing target for post {post.id}");
                 SaveDb();
                 RefreshPostsList();
-                _isSending = false;
+                _sendQueue.MarkFinished(post.id);
                 yield break;
             }
 
+            var snapshot = _targetRevisionPolicy.CreateSnapshot(post, target, attemptId, startedAtUtcIso);
+            _sendQueue.SetActiveSnapshot(snapshot);
+
             _log.Info($"Send start: {post.id} ({post.title}) -> {target.name}");
             bool done = false;
-            bool ok = false;
-            string err = "";
+            WebhookSendResult result = null;
 
-            yield return _webhook.Send(target, post, (success, error) =>
+            yield return _webhook.Send(target, post, sendResult =>
             {
-                ok = success;
-                err = error ?? "";
+                result = sendResult;
                 done = true;
             });
 
             while (!done) yield return null;
 
-            if (ok)
+            if (result == null)
             {
-                post.status = PostStatus.Sent;
-                post.lastError = "";
-                post.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+                result = new WebhookSendResult
+                {
+                    ok = false,
+                    statusCode = 0,
+                    outcome = SendOutcomeKind.Ambiguous,
+                    shortError = "Webhook result was missing."
+                };
+            }
+
+            if (result.outcome == SendOutcomeKind.RateLimited)
+            {
+                if (result.rateLimitGlobal ||
+                    string.Equals(result.rateLimitScope ?? "", "global", StringComparison.OrdinalIgnoreCase))
+                {
+                    _rateLimitRegistry.RecordGlobalBackoff(_timeProvider.UtcNow, result.retryAfterSeconds, result.shortError);
+                }
+                else
+                {
+                    _rateLimitRegistry.RecordTargetBackoff(target.id, _timeProvider.UtcNow, result.retryAfterSeconds, result.shortError);
+                }
+            }
+
+            if (!_sendQueue.IsActiveAttempt(post.id, attemptId))
+            {
+                _log.Warn($"Ignored stale send callback for post {post.id}; active attempt changed.");
+                yield break;
+            }
+
+            if (!_targetRevisionPolicy.Matches(snapshot, post, target, attemptId))
+            {
+                result = new WebhookSendResult
+                {
+                    ok = false,
+                    statusCode = result.statusCode,
+                    outcome = SendOutcomeKind.Ambiguous,
+                    shortError = "Send snapshot changed during active send; manual review required."
+                };
+            }
+
+            if (result.ok)
+            {
+                var transition = _postStateMachine.MarkSent(post, result);
+                if (!transition.ok)
+                    _log.Warn($"Send success transition rejected for {post.id}: {transition.error}");
                 _log.Info($"Send ok: {post.id} -> {target.name}");
             }
             else
             {
-                post.retries++;
-                post.lastError = err;
-                post.updatedAtUtcIso = TimeUtil.ToIsoUtc(DateTime.UtcNow);
+                var transition = _postStateMachine.MarkSendFailedOrRetry(post, result);
+                if (!transition.ok)
+                    _log.Warn($"Send failure transition rejected for {post.id}: {transition.error}");
 
-                // retry policy: simple - mark failed after 10 attempts
-                if (post.retries >= 10)
-                    post.status = PostStatus.Failed;
-                else
-                    post.status = PostStatus.Pending;
-
-                _log.Warn($"Send failed: {post.id} -> {target.name} (retry {post.retries}) err={err}");
+                _log.Warn($"Send failed: {post.id} -> {target.name} status={post.status} retry={post.retries} err={result.shortError}");
             }
 
+            AppendSendAttempt(post, target, attemptId, startedAtUtcIso, result);
             SaveDb();
             RefreshPostsList();
             LoadSelectedPostIntoEditor();
 
-            _isSending = false;
+            _sendQueue.MarkFinished(post.id, attemptId);
         }
 
-        private void SaveDb()
+        private void AppendSendAttempt(ScheduledPost post, Target target, string attemptId, string startedAtUtcIso, WebhookSendResult result)
         {
-            _storage.Save(_db);
+            if (_sendAttemptJournal == null || post == null || result == null)
+                return;
+
+            var append = _sendAttemptJournal.Append(new SendAttemptRecord
+            {
+                attemptId = attemptId,
+                postId = post.id,
+                targetId = target?.id ?? post.targetId,
+                startedAtUtcIso = startedAtUtcIso,
+                finishedAtUtcIso = TimeUtil.ToIsoUtc(_timeProvider.UtcNow),
+                statusCode = result.statusCode,
+                outcome = result.outcome,
+                discordMessageId = result.discordMessageId,
+                shortError = result.shortError
+            });
+
+            if (!append.ok)
+            {
+                _lastJournalWarning = SecretRedactor.Redact(append.error);
+                _log.Warn(_lastJournalWarning);
+            }
+            else
+            {
+                _lastJournalWarning = "";
+            }
+        }
+
+        private ValidationResult SaveDb()
+        {
+            if (_storageWriteBlocked)
+            {
+                var error = "Storage is locked by another app instance. Save blocked.";
+                _lastSaveWarning = error;
+                _log.Error(error);
+                if (_lblStatus != null)
+                    _lblStatus.text = error;
+                return ValidationResult.Fail(error);
+            }
+
+            var result = _storage.TrySave(_db);
+            if (!result.ok)
+            {
+                _lastSaveWarning = result.error;
+                _log.Error(result.error);
+                if (_lblStatus != null)
+                    _lblStatus.text = "Save failed: " + result.error;
+            }
+            else
+            {
+                _lastSaveWarning = "";
+            }
+
+            return result;
+        }
+
+        private bool TryApplyRateLimitGuard(ScheduledPost post)
+        {
+            if (post == null)
+                return false;
+
+            var targetId = post.targetId ?? "";
+            var rate = _rateLimitRegistry.CanSend(targetId, _timeProvider.UtcNow);
+            if (rate.ok)
+                return true;
+
+            var window = _rateLimitRegistry.GetTargetBackoff(targetId, _timeProvider.UtcNow);
+            if (window != null && TimeUtil.TryParseIsoUtc(window.untilUtcIso, out var untilUtc))
+            {
+                var defer = _postStateMachine.DeferPendingUntil(post, untilUtc, rate.error);
+                if (!defer.ok)
+                    _log.Warn($"Rate-limit defer rejected for {post.id}: {defer.error}");
+                else
+                    _log.Warn($"Rate-limit deferred post {post.id} until {window.untilUtcIso}.");
+
+                SaveDb();
+                RefreshPostsList();
+                return false;
+            }
+
+            _log.Warn($"Queue send rejected: {post.id} ({post.title}) reason: {rate.error}");
+            return false;
+        }
+
+        private void MarkActiveSendAmbiguousOnShutdown()
+        {
+            if (_lifecycle == null)
+                return;
+
+            _lifecycle.MarkShutdownStarted();
+
+            var activeId = _sendQueue?.ActivePostId ?? "";
+            if (string.IsNullOrWhiteSpace(activeId) || _db?.posts == null)
+                return;
+
+            var post = _db.posts.FirstOrDefault(p => p != null && p.id == activeId);
+            if (post == null)
+                return;
+
+            var result = _lifecycle.MarkActiveSendAmbiguousOnShutdown(post, "Application quit during active send; manual review required.");
+            if (result.ok)
+            {
+                _log.Warn($"Active send marked NeedsReview during shutdown: {post.id}");
+                SaveDb();
+            }
+            else
+            {
+                _log.Warn("Active send shutdown recovery skipped: " + result.error);
+            }
         }
 
         private void ShowView(VisualElement view)
         {
+            if (_viewDashboard != null) _viewDashboard.style.display = DisplayStyle.None;
             if (_viewTargets != null) _viewTargets.style.display = DisplayStyle.None;
             if (_viewNew != null) _viewNew.style.display = DisplayStyle.None;
             if (_viewPosts != null) _viewPosts.style.display = DisplayStyle.None;
+            if (_viewReview != null) _viewReview.style.display = DisplayStyle.None;
             if (_viewSettings != null) _viewSettings.style.display = DisplayStyle.None;
             if (_viewLog != null) _viewLog.style.display = DisplayStyle.None;
 
             if (view != null) view.style.display = DisplayStyle.Flex;
+            SetActiveNavigation(view);
+
+            if (view == _viewReview)
+                RefreshReviewList();
+
+            RefreshHealthUi();
         }
 
-        private void RefreshLog()
+        private void SetActiveNavigation(VisualElement view)
         {
-            if (_logScroll == null) return;
+            ClearActiveNavigation(_btnDashboard);
+            ClearActiveNavigation(_btnTargets);
+            ClearActiveNavigation(_btnNewPost);
+            ClearActiveNavigation(_btnPosts);
+            ClearActiveNavigation(_btnReview);
+            ClearActiveNavigation(_btnSettings);
+            ClearActiveNavigation(_btnLog);
 
-            _logScroll.Clear();
-            Label lastLabel = null;
-            foreach (var line in _log.Snapshot())
-            {
-                var lbl = new Label(line);
-                _logScroll.Add(lbl);
-                lastLabel = lbl;
-            }
+            if (view == _viewDashboard) SetActiveNavigation(_btnDashboard);
+            else if (view == _viewTargets) SetActiveNavigation(_btnTargets);
+            else if (view == _viewNew) SetActiveNavigation(_btnNewPost);
+            else if (view == _viewPosts) SetActiveNavigation(_btnPosts);
+            else if (view == _viewReview) SetActiveNavigation(_btnReview);
+            else if (view == _viewSettings) SetActiveNavigation(_btnSettings);
+            else if (view == _viewLog) SetActiveNavigation(_btnLog);
+        }
 
-            if (lastLabel != null)
-            {
-                _logScroll.ScrollTo(lastLabel);
-            }
+        private static void ClearActiveNavigation(Button button)
+        {
+            if (button != null)
+                button.RemoveFromClassList("navBtnActive");
+        }
+
+        private static void SetActiveNavigation(Button button)
+        {
+            if (button != null)
+                button.AddToClassList("navBtnActive");
         }
 
         private void OpenFolder(string path)
@@ -1880,7 +2707,7 @@ namespace DiscordScheduler
             {
                 if (counter != null)
                 {
-                    var len = (field.value ?? string.Empty).Length;
+                    var len = _payloadTextNormalizer.GetNormalizedLength(field.value ?? string.Empty);
                     var remain = Mathf.Max(0, BodyMaxChars - len);
                     counter.text = $"{len} / {BodyMaxChars}  (remain: {remain})";
                 }
@@ -1889,7 +2716,7 @@ namespace DiscordScheduler
             field.RegisterValueChangedCallback(evt =>
             {
                 var txt = evt.newValue ?? string.Empty;
-                if (txt.Length > BodyMaxChars)
+                if (_payloadTextNormalizer.GetNormalizedLength(txt) > BodyMaxChars && txt.Length > BodyMaxChars)
                 {
                     field.SetValueWithoutNotify(txt.Substring(0, BodyMaxChars));
                 }
@@ -1902,7 +2729,7 @@ namespace DiscordScheduler
         private void RefreshBodyCounter(TextField field, Label counter)
         {
             if (field == null || counter == null) return;
-            var len = (field.value ?? string.Empty).Length;
+            var len = _payloadTextNormalizer.GetNormalizedLength(field.value ?? string.Empty);
             var remain = Mathf.Max(0, BodyMaxChars - len);
             counter.text = $"{len} / {BodyMaxChars}  (remain: {remain})";
         }
@@ -1970,7 +2797,7 @@ namespace DiscordScheduler
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                 return;
 
-            if (FileUtil.IsAllowedImagePath(path))
+            if (MediaAttachmentRules.IsAllowedImagePath(path))
             {
                 try
                 {
@@ -1995,7 +2822,7 @@ namespace DiscordScheduler
                 return;
             }
 
-            if (FileUtil.IsAllowedVideoPath(path))
+            if (MediaAttachmentRules.IsAllowedVideoPath(path))
             {
                 img.style.display = DisplayStyle.Flex;
 
@@ -2052,10 +2879,10 @@ namespace DiscordScheduler
                     yield break;
                 }
 
-                int w = Mathf.Max(2, videoPlayer.width > 0 ? (int)videoPlayer.width : 320);
-                int h = Mathf.Max(2, videoPlayer.height > 0 ? (int)videoPlayer.height : 180);
+                int frameWidth = Mathf.Max(2, videoPlayer.width > 0 ? (int)videoPlayer.width : 320);
+                int frameHeight = Mathf.Max(2, videoPlayer.height > 0 ? (int)videoPlayer.height : 180);
 
-                renderTexture = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32);
+                renderTexture = new RenderTexture(frameWidth, frameHeight, 0, RenderTextureFormat.ARGB32);
                 videoPlayer.targetTexture = renderTexture;
 
                 videoPlayer.Play();
@@ -2088,7 +2915,7 @@ namespace DiscordScheduler
                     tex.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
                     tex.Apply(false, false);
                 }
-                catch (Exception e)
+                catch (Exception exception)
                 {
                     if (tex != null)
                     {
@@ -2096,7 +2923,7 @@ namespace DiscordScheduler
                         tex = null;
                     }
 
-                    Debug.LogWarning("Video preview: failed to capture frame: " + e.Message);
+                    Debug.LogWarning("Video preview: failed to capture frame: " + exception.Message);
                     yield break;
                 }
                 finally
@@ -2164,18 +2991,20 @@ namespace DiscordScheduler
 
             _db.posts.Sort((left, right) =>
             {
-                var leftUtc = TimeUtil.ParseIsoUtc(left.scheduledAtUtcIso);
-                var rightUtc = TimeUtil.ParseIsoUtc(right.scheduledAtUtcIso);
-                return DateTime.Compare(leftUtc, rightUtc);
+                DateTime leftUtc = default;
+                DateTime rightUtc = default;
+                var leftOk = left != null && TimeUtil.TryParseIsoUtc(left.scheduledAtUtcIso, out leftUtc);
+                var rightOk = right != null && TimeUtil.TryParseIsoUtc(right.scheduledAtUtcIso, out rightUtc);
+
+                if (leftOk && rightOk)
+                    return DateTime.Compare(leftUtc, rightUtc);
+
+                if (leftOk) return -1;
+                if (rightOk) return 1;
+
+                return string.Compare(left?.id, right?.id, StringComparison.Ordinal);
             });
         }
 
-        private void BindOpenFolderButtons(string buttonName, string path)
-        {
-            if (_root == null || string.IsNullOrWhiteSpace(buttonName)) return;
-
-            foreach (var button in _root.Query<Button>(buttonName).Build())
-                button.clicked += () => OpenFolder(path);
-        }
     }
 }

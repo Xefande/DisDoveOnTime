@@ -1,41 +1,87 @@
 using System;
 using System.Collections;
 using System.IO;
-using System.Text;
-using UnityEngine;
 
 namespace DiscordScheduler
 {
     public class DiscordWebhookClient
     {
         private readonly LogService _log;
+        private readonly WebhookUrlValidator _webhookUrlValidator;
+        private readonly WebhookErrorClassifier _classifier;
+        private readonly PayloadTextNormalizer _textNormalizer;
+        private readonly DiscordPayloadValidator _payloadValidator;
+        private readonly DiscordWebhookPayloadBuilder _payloadBuilder;
+        private readonly IWebhookTransport _transport;
+        private readonly WebhookRequestFactory _requestFactory;
+        private readonly IWebhookSecretResolver _webhookSecretResolver;
+        private readonly IFileSystem _fileSystem;
 
         public DiscordWebhookClient(LogService log)
+            : this(log, new DiscordWebhookHttpTransport(), new WebhookRequestFactory())
+        {
+        }
+
+        public DiscordWebhookClient(
+            LogService log,
+            IWebhookTransport transport,
+            WebhookRequestFactory requestFactory = null,
+            IWebhookSecretResolver webhookSecretResolver = null,
+            IFileSystem fileSystem = null)
         {
             _log = log;
+            _webhookUrlValidator = new WebhookUrlValidator();
+            _classifier = new WebhookErrorClassifier();
+            _textNormalizer = new PayloadTextNormalizer();
+            _payloadValidator = new DiscordPayloadValidator(_textNormalizer);
+            _payloadBuilder = new DiscordWebhookPayloadBuilder(_textNormalizer);
+            _transport = transport ?? new DiscordWebhookHttpTransport();
+            _requestFactory = requestFactory ?? new WebhookRequestFactory();
+            _webhookSecretResolver = webhookSecretResolver ?? new WebhookSecretResolver();
+            _fileSystem = fileSystem ?? new SystemFileSystem();
         }
 
         public IEnumerator Send(Target target, ScheduledPost post, Action<bool, string> done)
         {
-            if (target == null) { done(false, "Missing target."); yield break; }
-            if (post == null) { done(false, "Missing post."); yield break; }
-            if (string.IsNullOrWhiteSpace(target.webhookUrl)) { done(false, "Webhook URL is empty."); yield break; }
+            yield return Send(target, post, result =>
+            {
+                if (done != null)
+                    done(result != null && result.ok, result?.shortError ?? "");
+            });
+        }
+
+        public IEnumerator Send(Target target, ScheduledPost post, Action<WebhookSendResult> done)
+        {
+            if (target == null) { Complete(done, _classifier.NonRetryable("Missing target.")); yield break; }
+            if (post == null) { Complete(done, _classifier.NonRetryable("Missing post.")); yield break; }
+
+            var secretResolution = _webhookSecretResolver.Resolve(target);
+            if (!secretResolution.ok) { Complete(done, _classifier.NonRetryable(secretResolution.error)); yield break; }
+
+            var resolvedTarget = WebhookSecretResolver.CloneWithWebhookUrl(target, secretResolution.webhookUrl);
+            var webhookValidation = _webhookUrlValidator.Validate(resolvedTarget.webhookUrl);
+            if (!webhookValidation.ok) { Complete(done, _classifier.NonRetryable(webhookValidation.error)); yield break; }
 
             string mediaPath = post.EffectiveMediaPath();
             MediaKind mediaKind = post.EffectiveMediaKind();
 
             if (!string.IsNullOrWhiteSpace(mediaPath))
             {
-                if (!File.Exists(mediaPath))
+                if (!_fileSystem.FileExists(mediaPath))
                 {
-                    done(false, "Media file not found.");
+                    Complete(done, _classifier.NonRetryable("Media file not found."));
                     yield break;
                 }
 
-                long size = FileUtil.GetFileSizeBytes(mediaPath);
-                if (size > FileUtil.MaxAttachmentBytes)
+                if (!_fileSystem.TryGetFileSizeBytes(mediaPath, out var size, out var sizeError))
                 {
-                    done(false, "Attachement too large (>10 MB). Non-Nitro limit.");
+                    Complete(done, _classifier.NonRetryable(sizeError));
+                    yield break;
+                }
+
+                if (size > MediaAttachmentRules.MaxAttachmentBytes)
+                {
+                    Complete(done, _classifier.NonRetryable(MediaAttachmentRules.AttachmentTooLargeError));
                     yield break;
                 }
             }
@@ -44,100 +90,69 @@ namespace DiscordScheduler
                 ? Path.GetFileName(mediaPath)
                 : "";
 
-            string payload = BuildPayloadJson(target, post, embedFilename);
-
-            const int maxAttempts = 5;
-            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            var payloadValidation = _payloadValidator.Validate(resolvedTarget, ToDraft(post, mediaPath));
+            if (!payloadValidation.ok)
             {
-                var task = DiscordWebhookHttp11.ExecuteAsync(target.webhookUrl, payload,
-                    string.IsNullOrWhiteSpace(mediaPath) ? null : mediaPath);
-
-                while (!task.IsCompleted) yield return null;
-
-                if (task.IsFaulted)
-                {
-                    var msg = task.Exception?.GetBaseException().Message ?? "HTTP hiba";
-                    done(false, msg);
-                    yield break;
-                }
-
-                var res = task.Result;
-                if (res.ok)
-                {
-                    done(true, "");
-                    yield break;
-                }
-
-                if (res.statusCode == 429 && attempt < maxAttempts)
-                {
-                    float wait = Mathf.Clamp(res.retryAfterSeconds <= 0 ? 2f : res.retryAfterSeconds, 0.5f, 30f);
-                    _log.Warn($"Discord 429 rate limit. Retry in {wait:0.0}s.");
-                    yield return new WaitForSeconds(wait);
-                    continue;
-                }
-
-                done(false, string.IsNullOrWhiteSpace(res.body) ? $"HTTP {res.statusCode}" : res.body);
+                Complete(done, _classifier.NonRetryable(payloadValidation.error));
                 yield break;
             }
 
-            done(false, "Nem sikerült elküldeni (túl sok retry).");
+            string payload = _payloadBuilder.Build(resolvedTarget, post, embedFilename, !string.IsNullOrWhiteSpace(mediaPath));
+            var request = _requestFactory.Create(resolvedTarget, post, payload, mediaPath, mediaKind);
+
+            var task = _transport.SendAsync(request);
+            if (task == null)
+            {
+                Complete(done, _classifier.Ambiguous("Webhook transport returned no task."));
+                yield break;
+            }
+
+            while (!task.IsCompleted) yield return null;
+
+            if (task.IsFaulted)
+            {
+                Complete(done, _classifier.ClassifyException(task.Exception?.GetBaseException()));
+                yield break;
+            }
+
+            Complete(done, _classifier.Classify(ToHttpResult(task.Result)));
         }
 
-        private static string BuildPayloadJson(Target target, ScheduledPost post, string embedFilename)
+        private static void Complete(Action<WebhookSendResult> done, WebhookSendResult result)
         {
-            string title = post.title ?? string.Empty;
-            string body = post.body ?? string.Empty;
-            bool useEmbed = post.sendAsEmbed;
-
-            var sb = new StringBuilder();
-            sb.Append('{');
-
-            if (!string.IsNullOrWhiteSpace(target.overrideUsername))
-                sb.Append("\"username\":\"").Append(JsonUtil.Escape(target.overrideUsername)).Append("\",");
-
-            if (!string.IsNullOrWhiteSpace(target.overrideAvatarUrl))
-                sb.Append("\"avatar_url\":\"").Append(JsonUtil.Escape(target.overrideAvatarUrl)).Append("\",");
-
-            if (post.allowedMentions != null)
-                sb.Append("\"allowed_mentions\":").Append(JsonUtil.BuildAllowedMentions(post.allowedMentions)).Append(',');
-
-            if (useEmbed)
-            {
-                sb.Append("\"embeds\":[{");
-                bool hasAny = false;
-                if (!string.IsNullOrWhiteSpace(title))
-                {
-                    sb.Append("\"title\":\"").Append(JsonUtil.Escape(title)).Append("\"");
-                    hasAny = true;
-                }
-
-                if (!string.IsNullOrWhiteSpace(body))
-                {
-                    if (hasAny) sb.Append(',');
-                    sb.Append("\"description\":\"").Append(JsonUtil.Escape(body)).Append("\"");
-                    hasAny = true;
-                }
-
-                if (!string.IsNullOrWhiteSpace(embedFilename))
-                {
-                    if (hasAny) sb.Append(',');
-                    sb.Append("\"image\":{\"url\":\"attachment://").Append(JsonUtil.Escape(embedFilename)).Append("\"}");
-                }
-
-                sb.Append("}],\"content\":\"\"}");
-            }
-            else
-            {
-                // Normal content mode
-                string content = string.IsNullOrWhiteSpace(title)
-                    ? body
-                    : string.IsNullOrWhiteSpace(body)
-                        ? title
-                        : $"{title}\n{body}";
-
-                sb.Append("\"content\":\"").Append(JsonUtil.Escape(content)).Append("\"}");
-            }
-            return sb.ToString();
+            if (done != null)
+                done(result);
         }
+
+        private static PostDraft ToDraft(ScheduledPost post, string mediaPath)
+        {
+            return new PostDraft
+            {
+                id = post.id,
+                targetId = post.targetId,
+                title = post.title,
+                body = post.body,
+                mediaPath = mediaPath ?? "",
+                sendAsEmbed = post.sendAsEmbed,
+                allowedMentions = post.allowedMentions
+            };
+        }
+
+        private static DiscordWebhookHttp11.Result ToHttpResult(WebhookTransportResponse response)
+        {
+            return new DiscordWebhookHttp11.Result
+            {
+                ok = response.ok,
+                statusCode = response.statusCode,
+                body = response.body,
+                retryAfterSeconds = response.retryAfterSeconds,
+                retryAfterSource = response.retryAfterSource,
+                rateLimitGlobal = response.rateLimitGlobal,
+                rateLimitScope = response.rateLimitScope,
+                requestMayHaveReachedDiscord = response.requestMayHaveReachedDiscord,
+                errorKind = response.errorKind
+            };
+        }
+
     }
 }

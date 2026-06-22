@@ -13,6 +13,7 @@ namespace DiscordScheduler
         public string channelLabel;
 
         public string webhookUrl;
+        public string webhookSecretRef;
 
         // webhook overrides (optional)
         public string overrideUsername;
@@ -27,6 +28,7 @@ namespace DiscordScheduler
                 serverLabel = "",
                 channelLabel = "",
                 webhookUrl = "",
+                webhookSecretRef = "",
                 overrideUsername = "",
                 overrideAvatarUrl = ""
             };

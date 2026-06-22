@@ -7,11 +7,13 @@ namespace DiscordScheduler
     {
         private readonly int _max;
         private readonly Queue<string> _lines;
+        private readonly Func<DateTime> _now;
 
-        public LogService(int maxLines = 300)
+        public LogService(int maxLines = 300, Func<DateTime> now = null)
         {
             _max = Math.Max(50, maxLines);
             _lines = new Queue<string>(_max);
+            _now = now ?? (() => DateTime.Now);
         }
 
         public void Info(string msg) => Add("INFO", msg);
@@ -22,7 +24,7 @@ namespace DiscordScheduler
 
         private void Add(string level, string msg)
         {
-            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {level}  {msg}";
+            var line = $"[{_now():yyyy-MM-dd HH:mm:ss}] {level}  {SecretRedactor.Redact(msg ?? "")}";
             _lines.Enqueue(line);
             while (_lines.Count > _max) _lines.Dequeue();
         }

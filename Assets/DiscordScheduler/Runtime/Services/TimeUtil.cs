@@ -12,28 +12,39 @@ namespace DiscordScheduler
         {
             if (utc.Kind != DateTimeKind.Utc)
                 utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+
             return utc.ToString(IsoFormat, CultureInfo.InvariantCulture);
         }
 
         public static DateTime ParseIsoUtc(string iso)
         {
+            if (TryParseIsoUtc(iso, out var utc))
+                return utc;
+
+            return DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+        }
+
+        public static bool TryParseIsoUtc(string iso, out DateTime utc)
+        {
+            utc = default;
             if (string.IsNullOrWhiteSpace(iso))
-                return DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+                return false;
 
             if (DateTime.TryParseExact(iso.Trim(), IsoFormat, CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
             {
-                return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                utc = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                return true;
             }
 
-            // fallback parse
             if (DateTime.TryParse(iso, CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out dt))
             {
-                return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                utc = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                return true;
             }
 
-            return DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc);
+            return false;
         }
 
         public static TimeZoneInfo GetBudapestTimeZone()
@@ -60,25 +71,48 @@ namespace DiscordScheduler
 
         public static DateTime LocalBudapestToUtc(string dateYmd, string timeHm, out string error)
         {
+            if (TryLocalBudapestToUtc(dateYmd, timeHm, out var utc, out error))
+                return utc;
+
+            return DateTime.UtcNow;
+        }
+
+        public static bool TryLocalBudapestToUtc(string dateYmd, string timeHm, out DateTime utc, out string error)
+        {
+            utc = default;
             error = "";
+
             if (!DateTime.TryParseExact(dateYmd?.Trim() ?? "", "yyyy-MM-dd", CultureInfo.InvariantCulture,
                     DateTimeStyles.None, out var date))
             {
-                error = "Hibás dátum formátum. Várt: YYYY-MM-DD";
-                return DateTime.UtcNow;
+                error = "Invalid date format. Expected: YYYY-MM-DD";
+                return false;
             }
 
             if (!DateTime.TryParseExact(timeHm?.Trim() ?? "", "HH:mm", CultureInfo.InvariantCulture,
                     DateTimeStyles.None, out var time))
             {
-                error = "Hibás idő formátum. Várt: HH:MM (24 órás)";
-                return DateTime.UtcNow;
+                error = "Invalid time format. Expected: HH:MM";
+                return false;
             }
 
             var local = new DateTime(date.Year, date.Month, date.Day, time.Hour, time.Minute, 0, DateTimeKind.Unspecified);
             var tz = GetBudapestTimeZone();
-            var utc = TimeZoneInfo.ConvertTimeToUtc(local, tz);
-            return DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+
+            if (tz.IsInvalidTime(local))
+            {
+                error = "Invalid local time in Budapest time zone.";
+                return false;
+            }
+
+            if (tz.IsAmbiguousTime(local))
+            {
+                error = "Ambiguous local time in Budapest time zone.";
+                return false;
+            }
+
+            utc = DateTime.SpecifyKind(TimeZoneInfo.ConvertTimeToUtc(local, tz), DateTimeKind.Utc);
+            return true;
         }
 
         public static (string dateYmd, string timeHm) UtcToBudapestFields(DateTime utc)

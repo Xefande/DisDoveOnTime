@@ -10,10 +10,8 @@ namespace DiscordScheduler
         public static string DataFilePath => Path.Combine(Application.persistentDataPath, "discord_scheduler_db.json");
         public static string AttachmentsFolder => Path.Combine(Application.persistentDataPath, "attachments");
 
-        public const long MaxAttachmentBytes = 10L * 1024L * 1024L;
-
-        private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg", ".webp", ".gif" };
-        private static readonly string[] VideoExts = { ".mp4", ".webm", ".mov" };
+        public const long MaxAttachmentBytes = MediaAttachmentRules.MaxAttachmentBytes;
+        public static string AttachmentTooLargeError => MediaAttachmentRules.AttachmentTooLargeError;
 
         public static void EnsureFolders()
         {
@@ -42,10 +40,12 @@ namespace DiscordScheduler
                 return false;
             }
 
-            var size = GetFileSizeBytes(sourcePath);
+            if (!TryGetFileSizeBytes(sourcePath, out var size, out error))
+                return false;
+
             if (size > MaxAttachmentBytes)
             {
-                error = $"Attachement too large (>{MaxAttachmentBytes / (1024 * 1024)} MB). Non-Nitro limit.";
+                error = AttachmentTooLargeError;
                 return false;
             }
 
@@ -55,15 +55,15 @@ namespace DiscordScheduler
             if (string.IsNullOrWhiteSpace(ext))
                 ext = kindHint == MediaKind.Video ? ".mp4" : ".png";
 
-            var kind = kindHint == MediaKind.None ? GuessKindFromExt(ext) : kindHint;
+            var kind = kindHint == MediaKind.None ? MediaAttachmentRules.GuessKindFromExt(ext) : kindHint;
 
-            if (kind == MediaKind.Image && !IsAllowedExt(ext, ImageExts))
+            if (kind == MediaKind.Image && !MediaAttachmentRules.IsAllowedImageExtension(ext))
             {
                 error = "Only image files are allowed (png, jpg, jpeg, webp, gif).";
                 return false;
             }
 
-            if (kind == MediaKind.Video && !IsAllowedExt(ext, VideoExts))
+            if (kind == MediaKind.Video && !MediaAttachmentRules.IsAllowedVideoExtension(ext))
             {
                 error = "Only video files are allowed (mp4, webm, mov).";
                 return false;
@@ -71,7 +71,7 @@ namespace DiscordScheduler
 
             var unique = string.IsNullOrWhiteSpace(postId) ? Guid.NewGuid().ToString("N") : postId;
             var prefix = kind == MediaKind.Video ? "vd_" : "img_";
-            var baseName = SanitizeFileName(Path.GetFileNameWithoutExtension(sourcePath));
+            var baseName = MediaAttachmentRules.SanitizeFileName(Path.GetFileNameWithoutExtension(sourcePath));
             var fileName = $"{prefix}{baseName}_{unique}{ext}";
             newPath = Path.Combine(AttachmentsFolder, fileName);
 
@@ -80,44 +80,74 @@ namespace DiscordScheduler
                 File.Copy(sourcePath, newPath, true);
                 return true;
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                error = "copy file unsuccessful: " + e.Message;
+                error = "copy file unsuccessful: " + exception.Message;
                 return false;
             }
         }
 
-        private static string SanitizeFileName(string name)
+        public static string SanitizeFileName(string name)
         {
-            if (string.IsNullOrEmpty(name)) return "file";
-            var invalid = Path.GetInvalidFileNameChars();
-            return string.Concat(name.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
+            return MediaAttachmentRules.SanitizeFileName(name);
         }
 
         public static MediaKind GuessKindFromExt(string extLower)
         {
-            if (IsAllowedExt(extLower, VideoExts)) return MediaKind.Video;
-            return MediaKind.Image;
+            return MediaAttachmentRules.GuessKindFromExt(extLower);
         }
 
         public static bool IsAllowedImagePath(string path)
-            => IsAllowedExt((Path.GetExtension(path) ?? "").ToLowerInvariant(), ImageExts);
+            => MediaAttachmentRules.IsAllowedImagePath(path);
 
         public static bool IsAllowedVideoPath(string path)
-            => IsAllowedExt((Path.GetExtension(path) ?? "").ToLowerInvariant(), VideoExts);
+            => MediaAttachmentRules.IsAllowedVideoPath(path);
 
-        private static bool IsAllowedExt(string extLower, string[] set)
+        public static bool IsManagedAttachmentPath(string path)
         {
-            if (string.IsNullOrWhiteSpace(extLower)) return false;
-            for (int i = 0; i < set.Length; i++)
-                if (set[i] == extLower) return true;
-            return false;
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            try
+            {
+                var root = Path.GetFullPath(AttachmentsFolder)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                var fullPath = Path.GetFullPath(path.Trim().Trim('"'));
+                return fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static long GetFileSizeBytes(string path)
         {
             try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
             catch { return 0; }
+        }
+
+        public static bool TryGetFileSizeBytes(string path, out long sizeBytes, out string error)
+        {
+            sizeBytes = 0;
+            error = "";
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    error = "File does not exist.";
+                    return false;
+                }
+
+                sizeBytes = new FileInfo(path).Length;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                error = "Cannot read file size: " + exception.Message;
+                return false;
+            }
         }
     }
 }

@@ -8,7 +8,8 @@ namespace DiscordScheduler
         Sending = 1,
         Sent = 2,
         Failed = 3,
-        Missed = 4
+        Missed = 4,
+        NeedsReview = 5
     }
 
     public enum MissedPolicy

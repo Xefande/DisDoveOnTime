@@ -6,11 +6,11 @@ namespace DiscordScheduler
 {
     public static class JsonUtil
     {
-        public static string Escape(string s)
+        public static string Escape(string value)
         {
-            if (string.IsNullOrEmpty(s)) return "";
-            var sb = new StringBuilder(s.Length + 8);
-            foreach (var ch in s)
+            if (string.IsNullOrEmpty(value)) return "";
+            var sb = new StringBuilder(value.Length + 8);
+            foreach (var ch in value)
             {
                 switch (ch)
                 {
@@ -34,23 +34,27 @@ namespace DiscordScheduler
 
         public static List<string> SplitCsvIds(string csv)
         {
-            var res = new List<string>();
-            if (string.IsNullOrWhiteSpace(csv)) return res;
+            var ids = new List<string>();
+            if (string.IsNullOrWhiteSpace(csv)) return ids;
 
             var parts = csv.Split(',');
-            foreach (var p in parts)
+            foreach (var part in parts)
             {
-                var t = (p ?? "").Trim();
-                if (t.Length == 0) continue;
+                var trimmedId = (part ?? "").Trim();
+                if (trimmedId.Length == 0) continue;
                 // keep only digits (Discord IDs are snowflakes)
-                bool ok = true;
-                for (int i = 0; i < t.Length; i++)
+                bool containsOnlyDigits = true;
+                for (int i = 0; i < trimmedId.Length; i++)
                 {
-                    if (t[i] < '0' || t[i] > '9') { ok = false; break; }
+                    if (trimmedId[i] < '0' || trimmedId[i] > '9')
+                    {
+                        containsOnlyDigits = false;
+                        break;
+                    }
                 }
-                if (ok) res.Add(t);
+                if (containsOnlyDigits) ids.Add(trimmedId);
             }
-            return res;
+            return ids;
         }
 
         public static string JsonArrayOfStrings(List<string> values)
@@ -68,14 +72,18 @@ namespace DiscordScheduler
 
         public static string BuildAllowedMentions(AllowedMentions m)
         {
-            // parse array controls actual parsing of mentions
-            var parse = new List<string>();
-            if (m.allowUsers) parse.Add("users");
-            if (m.allowRoles) parse.Add("roles");
-            if (m.allowEveryone) parse.Add("everyone");
+            if (m == null)
+                return "{\"parse\":[]}";
 
             var users = m.allowUsers ? SplitCsvIds(m.userIdsCsv) : new List<string>();
             var roles = m.allowRoles ? SplitCsvIds(m.roleIdsCsv) : new List<string>();
+
+            // Discord does not allow parse.users/parse.roles together with explicit arrays
+            // for the same mention type. Explicit IDs mean "allow only these IDs".
+            var parse = new List<string>();
+            if (m.allowUsers && users.Count == 0) parse.Add("users");
+            if (m.allowRoles && roles.Count == 0) parse.Add("roles");
+            if (m.allowEveryone) parse.Add("everyone");
 
             var sb = new StringBuilder();
             sb.Append("{");

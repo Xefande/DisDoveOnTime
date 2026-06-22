@@ -25,9 +25,9 @@ namespace DiscordScheduler
                 if (ok == 1)
                     return sb.ToString();
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                Debug.LogWarning("Native file dialog failed: " + e.Message);
+                Debug.LogWarning("Native file dialog failed: " + exception.Message);
             }
         #endif
 
